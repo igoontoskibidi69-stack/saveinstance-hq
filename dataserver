@@ -9,7 +9,7 @@ local ReplicatedStorage = game:GetService("ReplicatedStorage")
 
 local cooldowns = {}
 local savedOnce = {}
-local DEFAULT_MONEY = 8500
+local DEFAULT_MONEY = 1000000000
 
 local function createIntValue(parent, name, defaultValue)
 	local value = Instance.new("IntValue")
@@ -280,6 +280,25 @@ local Workspace = game:GetService("Workspace")
 local Players = game:GetService("Players")
 local DataManager = require(game.ReplicatedStorage.Modules.DataManager)
 
+DataManager:HookFunction("NewHouseSlot", function(player, data)
+	local stats = workspace:FindFirstChild("Stats")
+	if not stats then
+		return false
+	end
+
+	local playerStats = stats:FindFirstChild(player.Name)
+	if not playerStats then
+		return false
+	end
+
+	local houses = playerStats:FindFirstChild("Houses")
+	if not houses then
+		return false
+	end
+
+	return true
+end)
+
 DataManager:HookFunction("NewHouse", function(plr, data)
 	local houseType = data.HouseType or data[1] or 1
 	local plotId = data.PlotId or data[2] or 1
@@ -407,89 +426,92 @@ DataManager:HookEvent("SaveHouseData", function(player, data)
 end)
 
 DataManager:HookFunction("LoadHouse", function(player, data)
+	print("[HOUSE TEST 3] LoadHouse reached:", player.Name)
+
 	if typeof(data) ~= "table" then
+		warn("[LoadHouse] Invalid data")
 		return false
 	end
 
 	local house = data.House
 
 	if typeof(house) ~= "Instance" then
+		warn("[LoadHouse] House is not an Instance")
 		return false
 	end
 
 	local stats = workspace:FindFirstChild("Stats")
 	if not stats then
+		warn("[LoadHouse] Stats missing")
 		return false
 	end
 
 	local playerStats = stats:FindFirstChild(player.Name)
 	if not playerStats then
+		warn("[LoadHouse] Player stats missing")
 		return false
 	end
 
 	local houses = playerStats:FindFirstChild("Houses")
-	if not houses or not house:IsDescendantOf(houses) then
+	if not houses then
+		warn("[LoadHouse] Houses missing")
+		return false
+	end
+
+	if house.Parent ~= houses then
+		warn("[LoadHouse] House is not owned by player")
 		return false
 	end
 
 	local plot = workspace.Plots:FindFirstChild("Plot_" .. player.Name)
 	if not plot then
+		warn("[LoadHouse] Plot missing")
+		return false
+	end
+
+	local spawn = plot:FindFirstChild("Spawn")
+	if not spawn or not spawn:IsA("BasePart") then
+		warn("[LoadHouse] Spawn missing")
+		return false
+	end
+
+	local character = player.Character
+	if not character then
+		warn("[LoadHouse] Character missing")
 		return false
 	end
 
 	local houseModel = plot:FindFirstChild("House")
-	if not houseModel then
-		return false
-	end
 
-	houseModel:ClearAllChildren()
+	if houseModel then
+		local modelsToPutInHouse = game.ServerStorage.Houses:FindFirstChild("ModelsToPutInHouse")
 
-	local serverHouses = game.ServerStorage:FindFirstChild("Houses")
-	if not serverHouses then
-		return false
-	end
+		if modelsToPutInHouse then
+			local defaultHouse = game.ServerStorage.Houses:FindFirstChild("DefaultHouse")
 
-	local modelsToPutInHouse = serverHouses:FindFirstChild("ModelsToPutInHouse")
+			if not defaultHouse then
+				warn("[LoadHouse] DefaultHouse missing")
+				return false
+			end
 
-	if not modelsToPutInHouse then
-		local defaultHouse = serverHouses:FindFirstChild("DefaultHouse")
-		if defaultHouse then
-			modelsToPutInHouse = defaultHouse.Parent:FindFirstChild("ModelsToPutInHouse")
+			houseModel:ClearAllChildren()
+
+			for _, object in ipairs(defaultHouse:GetChildren()) do
+				object:Clone().Parent = houseModel
+			end
 		end
 	end
 
-	if modelsToPutInHouse then
-		for _, object in ipairs(modelsToPutInHouse:GetChildren()) do
-			object:Clone().Parent = houseModel
-		end
-	end
+	print("[HOUSE TEST 3] BEFORE TELEPORT:", character:GetPivot().Position)
+	print("[HOUSE TEST 4] TARGET:", spawn.Position)
 
-	local position = house:FindFirstChild("Position")
+	character:PivotTo(spawn.CFrame + Vector3.new(0, 3, 0))
 
-	if position and position:IsA("Vector3Value") then
-		houseModel:PivotTo(CFrame.new(position.Value))
-	end
+	print("[HOUSE TEST 5] AFTER TELEPORT:", character:GetPivot().Position)
 
 	return true
 end)
 
-DataManager:HookFunction("SetPermission", function(plr, data)
-	local targetPlayer = data.Player
-	local index = data.Index
-
-	if typeof(targetPlayer) ~= "Instance" or not targetPlayer:IsA("Player") then
-		warn("Invalid player passed to SetPermission")
-		return
-	end
-
-	targetPlayer:SetAttribute(plr.UserId .. "_Permission", index)
-
-	DataManager:FireClient(targetPlayer, {
-		Type = "PermissionChanged",
-		Owner = plr,
-		Index = index
-	})
-end)
 
 DataManager:HookFunction("DonateMoney", function(plr, data)
 	local targetPlayer = data.Player
