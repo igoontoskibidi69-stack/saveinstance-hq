@@ -1,0 +1,530 @@
+-- params : ...
+
+local module = {}
+local players = game:GetService("Players")
+local player = players.LocalPlayer
+local storage = game:GetService("ReplicatedStorage")
+local repModules = storage:WaitForChild("Modules")
+require(repModules:WaitForChild("GlobalEnvironment"))()
+local assets = script:WaitForChild("Assets")
+local loadedModules = {}
+local load = function(module, skipCache)
+  
+  local loaded = require(module)
+  if loaded and not skipCache then
+    loadedModules[tostring(module)] = loaded
+  end
+  return loaded
+end
+
+local modules = script.Parent
+local characterHandler = load(modules:WaitForChild("CharacterHandler"))
+local clientStats = load(modules:WaitForChild("ClientStats"))
+local soundHandler = load(modules:WaitForChild("SoundHandler"))
+local GUIHandler = load(modules:WaitForChild("GUIHandler"))
+local cameraHandler = load(modules:WaitForChild("CameraHandler"))
+local interactionHandler = (load(modules:WaitForChild("InteractionHandler")))
+local menuHandler = nil
+spawn(function()
+  
+  menuHandler = require(modules:WaitForChild("MenuHandler"))
+end
+)
+local utils = repModules:WaitForChild("Utilities")
+local interpolate = load(utils:WaitForChild("Interpolate"))
+local textModule = load(utils:WaitForChild("TextModule"))
+local timeModule = load(utils:WaitForChild("TimeModule"))
+local storage = game:GetService("ReplicatedStorage")
+local repModules = storage:WaitForChild("Modules")
+local dataManager = load(repModules:WaitForChild("DataManager"))
+local skillData = load(repModules:WaitForChild("SkillData"))
+local equipmentHandler = load(repModules:WaitForChild("EquipmentHandler"))
+local animationHandler = load(repModules:WaitForChild("AnimationHandler"))
+local timeManager = load(repModules:WaitForChild("TimeManager"))
+local jobData = load(repModules:WaitForChild("JobData"))
+local GUI = script.Parent.Parent
+local modules = GUI:WaitForChild("Scripts")
+local loadingHandler = load(modules:WaitForChild("LoadingHandler"))
+local runService = game:GetService("RunService")
+local camera = workspace.CurrentCamera
+local paycheckFrame = GUI:WaitForChild("PaycheckFrame")
+local workFrame = GUI:WaitForChild("Bar"):WaitForChild("CharMenu"):WaitForChild("WorkFrame")
+local findJobFrame = GUI:WaitForChild("FindJobFrame")
+module.GoToWork = function(self)
+  
+  local curJobModule = module:GetCurJobModule()
+  if curJobModule then
+    loadingHandler:ShowLoading()
+    local root, torso = characterHandler:GetRoot(), characterHandler:GetObject("Torso")
+    torso.Anchored = true
+    local pos = curJobModule:GetModel():WaitForChild("WorkTeleport_" .. tostring(module:GetJob())).CFrame + Vector3.new(0, 5, 0)
+    dataManager:InvokeServer({Type = "ToWork", Pos = pos})
+    root.CFrame = pos
+    torso.Anchored = false
+    loadingHandler:HideLoading()
+  end
+end
+
+for _,btn in pairs({workFrame:WaitForChild("NoWorkFrame"):WaitForChild("FindJob"), unpack(workFrame:WaitForChild("WorkFrame"):WaitForChild("Buttons"):GetChildren())}) do
+  do
+    GUIHandler:RoundedButtonEffect(R43_PC180)
+    btn.MouseButton1Down:connect(R43_PC180)
+  end
+end
+local selectedJob = 0
+module.ShowJob = function(self, change)
+  
+  local orderedJobs = jobData:GetReputationOrderedData()
+  local lastJob = selectedJob
+  if change ~= 0 then
+    if change > 0 then
+      if #orderedJobs > selectedJob or not 0 then
+        selectedJob = selectedJob + 1
+        if selectedJob > 0 or not #orderedJobs then
+          selectedJob = selectedJob - 1
+          selectedJob = 0
+          local thisJob = orderedJobs[selectedJob]
+          local mainFrame = findJobFrame:WaitForChild("MainFrame")
+          mainFrame:WaitForChild("WorkLabel").Size = UDim2.new(10, 0, 0, mainFrame.WorkLabel.Size.Y.Offset)
+          runService:UnbindFromRenderStep("JobSelection")
+          if selectedJob > 0 then
+            mainFrame:WaitForChild("WorkLabel").Text = thisJob.Title
+            mainFrame:WaitForChild("LocationLabel").Text = thisJob.Location and "at " .. thisJob.Location or ""
+            mainFrame:WaitForChild("ReputationLabel").Text = tonumber(thisJob.Reputation) and tonumber(thisJob.Reputation) > 1 and thisJob.Reputation or ""
+            mainFrame:WaitForChild("Select"):WaitForChild("TextLabel").Text = module:GetJob() == thisJob.Name and "Cancel" or "Start Working"
+            spawn(function()
+    
+    local jobModule = module:GetJobModule(thisJob.Name)
+    spawn(function()
+      
+      local pos = jobModule:GetModel():WaitForChild("CameraPoint_" .. tostring(thisJob.Name)).CFrame
+      if change == 0 or lastJob == 0 then
+        cameraHandler:TweenFromChar(pos, 0)
+      else
+        cameraHandler:Tween(pos, 0)
+      end
+      local posRot = pos - pos.p
+      pos = CFrame.new(pos.p)
+      runService:BindToRenderStep("JobSelection", 10000, function()
+        
+        camera.CoordinateFrame = pos * CFrame.Angles(0, math.sin(tick() * 0.1) * 0.2, 0) * posRot
+      end
+)
+    end
+)
+  end
+)
+          else
+            mainFrame:WaitForChild("WorkLabel").Text = "Unemployed"
+            mainFrame:WaitForChild("LocationLabel").Text = ""
+            mainFrame:WaitForChild("ReputationLabel").Text = ""
+            mainFrame:WaitForChild("Select"):WaitForChild("TextLabel").Text = not module:GetJob() and "Cancel" or "Quit Job"
+            spawn(cameraHandler.TweenToChar, nil, 0)
+          end
+          mainFrame.WorkLabel.Size = UDim2.new(0, mainFrame.WorkLabel.TextBounds.X, 0, mainFrame.WorkLabel.Size.Y.Offset)
+          mainFrame.LocationLabel.Size = UDim2.new(-1, mainFrame.WorkLabel.AbsoluteSize.X + 20, 0, mainFrame.LocationLabel.Size.Y.Offset)
+        end
+      end
+    end
+  end
+end
+
+-- DECOMPILER ERROR at PC211: Overwrote pending register: R43 in 'AssignReg'
+
+-- DECOMPILER ERROR at PC214: Overwrote pending register: R43 in 'AssignReg'
+
+for _,btn in pairs({findJobFrame:WaitForChild("Back"), findJobFrame:WaitForChild("Next"), findJobFrame:WaitForChild(R43_PC180):WaitForChild(R43_PC180)}) do
+  -- DECOMPILER ERROR at PC219: Overwrote pending register: R43 in 'AssignReg'
+
+  GUIHandler:RoundedButtonEffect(btn)
+  -- DECOMPILER ERROR at PC223: Overwrote pending register: R43 in 'AssignReg'
+
+  btn.MouseButton1Down:connect(function()
+  
+  if btn.Name == "Select" then
+    local selectedJobData = jobData:GetReputationOrderedData()[selectedJob]
+    local selectedJobName = selectedJobData and selectedJobData.Name or nil
+    local changed = true
+    if not selectedJobData or not selectedJobData.Name then
+      do
+        changed = module:ChangeJob(selectedJobName == module:GetJob() or nil)
+        if changed then
+          findJobFrame:TweenPosition(UDim2.new(findJobFrame.Position.X.Scale, findJobFrame.Position.X.Offset, 1, 0), "In", "Quad", 1, true, function(status)
+    
+    if status == Enum.TweenStatus.Completed then
+      findJobFrame.Visible = false
+    end
+  end
+)
+          runService:UnbindFromRenderStep("JobSelection")
+          cameraHandler:TweenToChar(0)
+          spawn(module.GoToWork)
+          menuHandler:SetAllState(true)
+        end
+        if btn.Name == "Next" then
+          module:ShowJob(1)
+        else
+          if btn.Name == "Back" then
+            module:ShowJob(-1)
+          end
+        end
+      end
+    end
+  end
+end
+)
+end
+createPaycheck = function(amount, type)
+  
+  local paycheck = paycheckFrame:clone()
+  paycheck.Position = UDim2.new(0.5, 0, 1, 0)
+  paycheck:WaitForChild("CheckMain").Overlay.BackgroundTransparency = 1
+  local btn = paycheck.CheckMain.Close
+  GUIHandler:RoundedButtonEffect(btn)
+  amount = tonumber(amount) or 0
+  paycheck.CheckMain.AmountLabel.Text = (amount) .. ".00"
+  paycheck.CheckMain.TypeLabel.Text = type
+  paycheck.CheckMain.ToLabel.Text = tostring(player)
+  paycheck.CheckMain.AmountTextLabel.Text = textModule:TitleCase(textModule:ToWords(amount))
+  local dateData = timeModule.data(timeModule.now())
+  paycheck.CheckMain.DateLabel.Text = dateData.monstring .. " " .. dateData.mday .. ", " .. dateData.year
+  paycheck.Parent = GUI
+  paycheck.Visible = true
+  soundHandler:Play("Paycheck")
+  interpolate(0.5, "In", "Quad", function(t)
+    
+    paycheck.CheckMain.Overlay.BackgroundTransparency = 1 - 0.5 * t
+    paycheck.Position = UDim2.new(0.5, 0, 1 - 0.8 * t, 60 * (1 - t))
+  end
+)
+  local closed = false
+  local close = function()
+    
+    if not closed then
+      closed = true
+      soundHandler:Play("MoneyEarned")
+      interpolate(0.5, "Out", "Quad", function(t)
+      
+      paycheck.CheckMain.Overlay.BackgroundTransparency = 0.5 + 0.5 * t
+      paycheck.Position = UDim2.new(0.5, 0, 0.2 + 0.8 * t, 60 * t)
+    end
+)
+      paycheck:Destroy()
+    end
+  end
+
+  paycheck.CheckMain.Overlay.MouseButton1Down:connect(close)
+  btn.MouseButton1Down:connect(close)
+end
+
+module.ShowPaycheck = function(self, ...)
+  
+  return GUIHandler:Queue(createPaycheck, nil, ...)
+end
+
+module.CreateChatBubble = function(self, text, parent)
+	local chatBubbleTemplate = assets:FindFirstChild("ChatBubble")
+	if not chatBubbleTemplate then
+		warn("ChatBubble template not found in assets.")
+		return nil
+	end
+
+	local newBubble = chatBubbleTemplate:Clone()
+	local body = newBubble:FindFirstChild("Body")
+	local textLabel = body and body:FindFirstChild("TextLabel")
+
+	if not textLabel then
+		warn("ChatBubble missing Body or TextLabel.")
+		return nil
+	end
+
+	textLabel.Text = text
+	newBubble.Size = UDim2.new(0, 0, 0, 0)
+	newBubble.StudsOffset = Vector3.new(0, 0, 0)
+	newBubble.Enabled = false -- Prevent popping early during animation
+	newBubble.Parent = parent
+
+	interpolate(0.5, "Out", "Quad", function(t)
+		newBubble.Size = UDim2.new(5 * t, 0, 2 * t, 0)
+		newBubble.StudsOffset = Vector3.new(0, 2.5 * t, 0)
+	end, true)
+
+	newBubble.Enabled = true
+	return newBubble
+end
+
+
+module.DestroyChatBubble = function(self, newBubble)
+  
+  spawn(function()
+    
+    interpolate(0.5, "In", "Quad", function(t)
+      
+      t = 1 - t
+      newBubble.Size = UDim2.new(5 * (t), 0, 2 * (t), 0)
+      newBubble.StudsOffset = Vector3.new(0, 2.5 * (t), 0)
+    end
+)
+    newBubble:Destroy()
+  end
+)
+end
+
+local jobModules = {}
+module.GetJobModules = function(self)
+  
+  return jobModules
+end
+
+module.GetJobModule = function(self, name)
+  
+  local jobModule = jobModules[name]
+  if not jobModule and name and name ~= "" then
+    warn("No job module for " .. tostring(name))
+  end
+  return jobModule
+end
+
+module.GetCurJobModule = function(self)
+  
+  local name = module:GetJob()
+  return module:GetJobModule(name)
+end
+
+module.CanUseWorkstation = function(self, workstation, plr)
+  
+  do
+    local inUse = workstation:WaitForChild("InUse")
+    -- DECOMPILER ERROR at PC11: Unhandled construct in 'MakeBoolean' P3
+
+    do return (inUse.Value and inUse.Value == plr) end
+    -- DECOMPILER ERROR: 2 unprocessed JMP targets
+  end
+end
+
+local curJob = ""
+module.GetJob = function(self)
+  
+  return curJob
+end
+
+module.JobChanged = function(self, newJob)
+  
+  if newJob == "" or newJob == "nil" then
+    newJob = nil
+  end
+  if newJob == curJob then
+    return 
+  end
+  local oldJob = curJob
+  curJob = newJob
+  local oldJobModule = module:GetJobModule(oldJob)
+  local newJobModule = module:GetJobModule(newJob)
+  workFrame:WaitForChild("WorkLabel").Size = UDim2.new(10, 0, 0, workFrame.WorkLabel.Size.Y.Offset)
+  if newJob and newJob ~= "" then
+    local curJobData = jobData:GetJob(newJob)
+    assert(curJobData, "No JobData for " .. tostring(newJob))
+    workFrame:WaitForChild("WorkFrame").Visible = true
+    workFrame:WaitForChild("NoWorkFrame").Visible = false
+    workFrame:WaitForChild("WorkLabel").Text = curJobData.Title
+    workFrame:WaitForChild("LocationLabel").Text = curJobData.Location and "at " .. curJobData.Location or ""
+  else
+    do
+      workFrame:WaitForChild("WorkFrame").Visible = false
+      workFrame:WaitForChild("NoWorkFrame").Visible = true
+      workFrame:WaitForChild("WorkLabel").Text = "Unemployed"
+      workFrame:WaitForChild("LocationLabel").Text = ""
+      workFrame.WorkLabel.Size = UDim2.new(0, workFrame.WorkLabel.TextBounds.X, 0, workFrame.WorkLabel.Size.Y.Offset)
+      workFrame.LocationLabel.Size = UDim2.new(-1, workFrame.WorkLabel.AbsoluteSize.X + 24, 0, workFrame.LocationLabel.Size.Y.Offset)
+      delay(5, function()
+    
+    workFrame.WorkLabel.Size = UDim2.new(0, workFrame.WorkLabel.TextBounds.X, 0, workFrame.WorkLabel.Size.Y.Offset)
+    workFrame.LocationLabel.Size = UDim2.new(-1, workFrame.WorkLabel.AbsoluteSize.X + 24, 0, workFrame.LocationLabel.Size.Y.Offset)
+  end
+)
+      module:PromotionChanged()
+      module:ShiftChanged()
+      if oldJobModule then
+        oldJobModule:Quit()
+      end
+      if newJobModule then
+        newJobModule:Start()
+      end
+    end
+  end
+end
+
+local isChanging = false
+module.ChangeJob = function(self, newJob)
+	if isChanging then
+		return
+	end
+
+	if newJob == "" then
+		newJob = nil
+	end
+
+	if newJob == curJob then
+		return
+	end
+
+	isChanging = true
+
+	local promptText = ""
+	local promptTitle = nil
+	local input = nil
+
+	if newJob then
+		local curJobData = jobData:GetJob(newJob)
+		assert(curJobData, "No JobData for " .. tostring(newJob))
+
+		local jobTitle = tostring(curJobData.Title or "?")
+		local jobLocation = tostring(curJobData.Location or "?")
+
+		promptText = "Are you sure you want to start working as a " .. jobTitle .. " at " .. jobLocation .. "?\nEarned promotions will be lost!"
+	else
+		if curJob then
+			promptText = "Are you sure you want to quit your job?\nEarned promotions will be lost!"
+		else
+			isChanging = false
+			return false
+		end
+	end
+
+	input = GUIHandler:ConfirmBox(promptText, promptTitle)
+
+	local changed = false
+	if input then
+		changed = dataManager:InvokeServer({
+			Type = "ChangeJob",
+			Job = newJob,
+			--StartShift = startShift
+		})
+	end
+
+	isChanging = false
+	return changed
+end
+
+
+local isWorking = clientStats:GetStat("IsWorking")
+module.IsWorking = function(self)
+  
+  return isWorking.Value
+end
+
+module.SetWorking = function(self, val)
+  
+  isWorking.Value = val
+end
+
+local updateNum = 0
+module.ShiftChanged = function(self, state)
+  
+  workFrame:WaitForChild("WorkFrame"):WaitForChild("Buttons"):WaitForChild("Action"):WaitForChild("TextLabel").Text = state and "End Shift" or "Go to Work"
+  workFrame:WaitForChild("WorkFrame"):WaitForChild("EarningsLabel").Visible = state
+  workFrame:WaitForChild("WorkFrame"):WaitForChild("EarningsLabel"):WaitForChild("TextLabel").Text = "0 $"
+  workFrame:WaitForChild("WorkFrame"):WaitForChild("TimeLabel").Visible = state
+  workFrame:WaitForChild("WorkFrame"):WaitForChild("TimeLabel"):WaitForChild("TextLabel").Text = "00:00"
+  workFrame:WaitForChild("WorkFrame"):WaitForChild("NotWorking").Visible = not state
+  if state then
+    local this = updateNum + 1
+    do
+      updateNum = this
+      local start = tick()
+      spawn(function()
+    
+    while module:IsWorking() and this == updateNum do
+      wait(0.05)
+      workFrame:WaitForChild("WorkFrame"):WaitForChild("TimeLabel"):WaitForChild("TextLabel").Text = timeManager:DisplayHours(timeManager:ConvertHours(tick() - start))
+    end
+  end
+)
+    end
+  end
+end
+
+-- DECOMPILER ERROR at PC303: Overwrote pending register: R43 in 'AssignReg'
+
+local promotionValue = clientStats:GetStat("Promotion")
+-- DECOMPILER ERROR at PC306: Overwrote pending register: R43 in 'AssignReg'
+
+R43_PC180 = R43_PC180(promotionValue, "Progress")
+local promotionProgress = nil
+module.PromotionChanged = function(self)
+  
+  local required = skillData:GetRequirePromotionProgress(promotionValue.Value)
+  local barFront, barBack = workFrame:WaitForChild("WorkFrame"):WaitForChild("PromotionBar"):WaitForChild("BarFront"), workFrame:WaitForChild("WorkFrame"):WaitForChild("PromotionBar"):WaitForChild("BarBack")
+  local size = promotionProgress.Value / required
+  barFront.Size = UDim2.new(size, 0, 1, 0)
+  barBack.Size = UDim2.new(1 - size, 0, 1, 0)
+  barBack.Position = UDim2.new(size, 0, 0, 0)
+  workFrame.WorkFrame.PromotionBar:WaitForChild("TextLabel").Text = tostring(promotionValue.Value) .. "   (" .. tostring(promotionProgress.Value) .. "/" .. tostring(required) .. ")"
+end
+
+for _,jobModule in pairs(script:GetChildren()) do
+  if jobModule:IsA("ModuleScript") then
+    local loadedJobModule = load(jobModule, true)
+    loadedJobModule:Init(module, loadedModules)
+    jobModules[tostring(jobModule)] = loadedJobModule
+  end
+end
+module:JobChanged(clientStats:Get("Job"))
+clientStats:HookChanged(clientStats:GetStat("ShiftEarnings"))
+clientStats:HookChanged(promotionValue)
+clientStats:HookChanged(isWorking)
+local lastPromotionLevel = 1
+clientStats.Updated:connect(function(stat)
+  
+  if stat.Name == "Job" then
+    module:JobChanged(stat.Value)
+  else
+    if stat.Name == "ShiftEarnings" then
+      workFrame:WaitForChild("WorkFrame"):WaitForChild("EarningsLabel"):WaitForChild("TextLabel").Text = tostring(math.floor(stat.Value)) .. " $"
+    else
+      if stat.Name == "Promotion" then
+        module:PromotionChanged()
+        if lastPromotionLevel < stat.Value and clientStats:Get("IsPlaying") then
+          GUIHandler:Glow("You just got promoted!", "Congratulations!", 338835471, "SkillIncreased")
+        end
+        lastPromotionLevel = stat.Value
+      else
+        if stat.Name == "IsWorking" then
+          module:ShiftChanged(stat.Value)
+        end
+      end
+    end
+  end
+end
+)
+promotionProgress.Changed:connect(module.PromotionChanged)
+dataManager:HookEvent("Paycheck", function(data)
+  
+  module:ShowPaycheck(data.Amount, data.CheckType)
+end
+)
+spawn(function()
+  
+  local hasShownPopup = false
+  while 1 do
+    while 1 do
+      if wait(1) then
+        local time = timeManager:GetHours()
+        if time >= 8 and time <= 9 and hasShownPopup or module:IsWorking() or not clientStats:Get("IsPlaying") or curJob ~= "" then
+          hasShownPopup = true
+          local input = GUIHandler:ConfirmBox("It\'s a new day which means it\'s time for work!\nGo to work now?", "Time for Work")
+          if input then
+            module:GoToWork()
+          end
+        end
+        -- DECOMPILER ERROR at PC40: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+        -- DECOMPILER ERROR at PC40: LeaveBlock: unexpected jumping out IF_STMT
+
+      end
+    end
+    hasShownPopup = false
+  end
+end
+)
+return module
