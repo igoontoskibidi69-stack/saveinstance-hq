@@ -367,96 +367,129 @@ showHouses = function()
 	houseFrame.Visible = true
 	houseFrame.Position = UDim2.new(houseFrame.Position.X.Scale, 0, 1, 0)
 	houseFrame:TweenPosition(UDim2.new(houseFrame.Position.X.Scale, 0, 0.4, 0), "Out", "Quad", 1, true)
-	local scrollFrame = houseFrame:WaitForChild("List"):WaitForChild("ScrollFrame")
 
-	-- Hide or destroy existing buttons in the scroll frame
-	for _, offset in pairs(scrollFrame:GetChildren()) do
-		if offset.Name == "HouseButton" or offset.Name == "NewHouse" then
-			offset.Visible = false
-		elseif offset:IsA("GuiObject") then
-			offset:Destroy()
+	local scrollFrame = houseFrame:WaitForChild("List"):WaitForChild("ScrollFrame")
+	local houseTemplate = scrollFrame:WaitForChild("HouseButton")
+	local newHouseTemplate = scrollFrame:WaitForChild("NewHouse")
+
+	houseTemplate.Visible = false
+	newHouseTemplate.Visible = false
+
+	for _, child in ipairs(scrollFrame:GetChildren()) do
+		if child ~= houseTemplate and child ~= newHouseTemplate and not child:IsA("UIListLayout") then
+			child:Destroy()
 		end
 	end
 
 	local createdButtons = {}
 	local canClick = true
+	local houses = clientStats:GetStat("Houses")
 
-	-- Create buttons for each house
-	for index, house in pairs(clientStats:GetStat("Houses"):GetChildren()) do
-		local button = scrollFrame.HouseButton:clone()
-		button.Visible = true
-		button.Name = tostring(house) .. "_Button"
-		button.Size = UDim2.new(1, 0, 0.16 * (#createdButtons + 1), 1)
+	if houses then
+		for _, house in ipairs(houses:GetChildren()) do
+			local button = houseTemplate:Clone()
+			button.Visible = true
+			button.Name = tostring(house.Name) .. "_Button"
+			button.Size = UDim2.new(1, 0, 0, 60)
 
-		if tostring(house) ~= "" then
-			button:WaitForChild("Button"):WaitForChild("NameLabel").Text = tostring(house)
-			GUIHandler:RoundedButtonEffect(button:WaitForChild("Button"))
+			local innerButton = button:WaitForChild("Button")
+			local nameLabel = innerButton:WaitForChild("NameLabel")
 
-			button:WaitForChild("Button").MouseButton1Down:connect(function()
-				if canClick then
-					canClick = false
-					housesBack()
+			nameLabel.Text = house.Name
+			GUIHandler:RoundedButtonEffect(innerButton)
 
-					if tostring(house) == "" then
-						showCreateHouse()
+			innerButton.MouseButton1Down:Connect(function()
+				if not canClick then
+					return
+				end
+
+				canClick = false
+				housesBack()
+				loadingHandler:ShowLoading()
+				choosePlot()
+
+				local worked = dataManager:InvokeServer({
+					Type = "LoadHouse",
+					House = house
+				})
+
+				if worked then
+					module:HideMenu()
+					loadingHandler:HideLoading()
+				else
+					loadingHandler:HideLoading()
+
+					if not plotHandler:GetPlot() then
+						GUIHandler:AlertBox(
+							"The server is currently full!\nJoin a different one or try again later...",
+							"Full Server"
+						)
 					else
-						loadingHandler:ShowLoading()
-						choosePlot()
-						local worked = dataManager:InvokeServer({Type = "LoadHouse", House = house})
-						if worked then
-							module:HideMenu()
-							loadingHandler:HideLoading()
-						else
-							loadingHandler:HideLoading()
-							if not plotHandler:GetPlot() then
-								GUIHandler:AlertBox("The server is currently full!\nJoin a different one or try again later...", "Full Server")
-							else
-								GUIHandler:AlertBox("Failed to load house!\nTry again later...", "Loading Failed")
-							end
-							showHouses()
-						end
+						GUIHandler:AlertBox(
+							"Failed to load house!\nTry again later...",
+							"Loading Failed"
+						)
 					end
+
+					canClick = true
+					showHouses()
 				end
 			end)
 
 			button.Parent = scrollFrame
-			table.insert(createdButtons, button.Button)
+			table.insert(createdButtons, button)
 		end
 	end
 
-	-- Button to create a new house slot
-	local button = scrollFrame.NewHouse:clone()
-	button.Visible = true
-	button.Name = button.Name .. "_Used"
-	button.Size = UDim2.new(1, 0, 0.16 * (#createdButtons + 1), 1)
-	GUIHandler:RoundedButtonEffect(button:WaitForChild("Button"))
+	local newHouseButton = newHouseTemplate:Clone()
+	newHouseButton.Visible = true
+	newHouseButton.Name = "NewHouse_Used"
+	newHouseButton.Size = UDim2.new(1, 0, 0, 60)
 
-	button:WaitForChild("Button").MouseButton1Down:connect(function()
-		if canClick then
-			if clientStats:Get("Blockbux") >= 300 then
-				canClick = false
-				housesBack()
-				loadingHandler:ShowLoading()
-				local worked = dataManager:InvokeServer({Type = "NewHouseSlot"})
-				if worked then
-					showCreateHouse()
-				else
-					loadingHandler:HideLoading()
-					GUIHandler:AlertBox("Unable to create new house slot!\nTry again later...", "Creation Failed")
-					showHouses()
-				end
+	local newHouseInnerButton = newHouseButton:WaitForChild("Button")
+	GUIHandler:RoundedButtonEffect(newHouseInnerButton)
+
+	newHouseInnerButton.MouseButton1Down:Connect(function()
+		if not canClick then
+			return
+		end
+
+		if clientStats:Get("Blockbux") >= 300 then
+			canClick = false
+			housesBack()
+			loadingHandler:ShowLoading()
+
+			local worked = dataManager:InvokeServer({
+				Type = "NewHouseSlot"
+			})
+
+			if worked then
+				showCreateHouse()
 			else
-				local frame = productPurchaser:ShowCurrencyFrame("Blockbux")
-				frame:WaitForChild("NotEnoughLabel").Visible = true
+				loadingHandler:HideLoading()
+				GUIHandler:AlertBox(
+					"Unable to create new house slot!\nTry again later...",
+					"Creation Failed"
+				)
+				canClick = true
+				showHouses()
 			end
+		else
+			local frame = productPurchaser:ShowCurrencyFrame("Blockbux")
+			frame:WaitForChild("NotEnoughLabel").Visible = true
 		end
 	end)
 
-	button.Parent = scrollFrame
-	table.insert(createdButtons, button.Button)
+	newHouseButton.Parent = scrollFrame
+	table.insert(createdButtons, newHouseButton)
 
-	-- Adding input manager selection and binding action for Backspace or ButtonB
-	--inputManager:AddSelection("MainMenu_Houses", createdButtons)
+	scrollFrame.CanvasSize = UDim2.new(
+		0,
+		0,
+		0,
+		60 * #createdButtons
+	)
+
 	inputManager:BindAction(
 		"MainMenu_Houses",
 		function(actionName, inputState, inputObject)
@@ -465,15 +498,9 @@ showHouses = function()
 				showMain()
 			end
 		end,
-		Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB
+		Enum.KeyCode.Backspace,
+		Enum.KeyCode.ButtonB
 	)
-
-	-- Update house scroll size
-	updateHouseScroll = function()
-		scrollFrame.CanvasSize = UDim2.new(0, 0, 0, scrollFrame.AbsoluteSize.X * 0.16 * #createdButtons)
-	end
-
-	updateHouseScroll()
 end
 
 function module.AnimateCamera()
