@@ -371,10 +371,9 @@ showHouses = function()
 
 	-- Hide or destroy existing buttons in the scroll frame
 	for _, offset in pairs(scrollFrame:GetChildren()) do
-		local button = offset:WaitForChild("Button")
 		if offset.Name == "HouseButton" or offset.Name == "NewHouse" then
 			offset.Visible = false
-		else
+		elseif offset:IsA("GuiObject") then
 			offset:Destroy()
 		end
 	end
@@ -387,7 +386,7 @@ showHouses = function()
 		local button = scrollFrame.HouseButton:clone()
 		button.Visible = true
 		button.Name = tostring(house) .. "_Button"
-		button.Size = UDim2.new(1, 0, 0.16 * #createdButtons, 1)
+		button.Size = UDim2.new(1, 0, 0.16 * (#createdButtons + 1), 1)
 
 		if tostring(house) ~= "" then
 			button:WaitForChild("Button"):WaitForChild("NameLabel").Text = tostring(house)
@@ -429,7 +428,7 @@ showHouses = function()
 	local button = scrollFrame.NewHouse:clone()
 	button.Visible = true
 	button.Name = button.Name .. "_Used"
-	button.Size = UDim2.new(1, 0, 0.16 * #createdButtons)
+	button.Size = UDim2.new(1, 0, 0.16 * (#createdButtons + 1), 1)
 	GUIHandler:RoundedButtonEffect(button:WaitForChild("Button"))
 
 	button:WaitForChild("Button").MouseButton1Down:connect(function()
