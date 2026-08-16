@@ -1,0 +1,309 @@
+local module = {}
+local isClient = game:GetService("RunService"):IsClient()
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local Players = game:GetService("Players")
+
+
+
+-- Create or get RemoteFunction
+local dataFunction = ReplicatedStorage:FindFirstChild("DataFunction")
+if not dataFunction then
+	dataFunction = Instance.new("RemoteFunction")
+	dataFunction.Name = "DataFunction"
+	dataFunction.Parent = ReplicatedStorage
+end
+
+-- Create or get RemoteEvent
+local dataEvent = ReplicatedStorage:FindFirstChild("DataEvent")
+
+if not dataEvent then
+	dataEvent = Instance.new("RemoteEvent")
+	dataEvent.Name = "DataEvent"
+	dataEvent.Parent = ReplicatedStorage.Modules
+end
+
+local debug = false
+
+-- This will hold our player data
+local playerData = {}
+
+local function spawnNow(func, ...)
+	local event = Instance.new("BindableEvent")
+	event.Event:Connect(func)
+	event:Fire(...)
+	event:Destroy()
+end
+
+function module:IsClient()
+	return isClient
+end
+
+-- Set player data in the module
+function module:Set(player, data)
+	playerData[player.UserId] = data
+end
+
+-- Get player data from the module
+function module:Get(player)
+	return playerData[player.UserId] or {}
+end
+
+local hookedFunctions = {}
+local hookedEvents = {}
+local hookedWaits = {}
+
+function module:WaitEvent(eventType, forPlr)
+	assert(eventType, "Type required")
+	hookedWaits[eventType] = (hookedWaits[eventType] or 0) + 1
+
+	if self:IsClient() then
+		while true do
+			local data = dataEvent.OnClientEvent:Wait()
+			if data and data.Type == eventType then
+				spawn(function()
+					hookedWaits[eventType] = math.max(0, (hookedWaits[eventType] or 1) - 1)
+				end)
+				return data
+			end
+		end
+	else
+		while true do
+			local plr, data = dataEvent.OnServerEvent:Wait()
+			if ((forPlr and plr == forPlr) or not forPlr) and data and data.Type == eventType then
+				spawn(function()
+					hookedWaits[eventType] = math.max(0, (hookedWaits[eventType] or 1) - 1)
+				end)
+				return data, plr
+			end
+		end
+	end
+end
+
+function module:HookEvent(dataType, func)
+	assert(dataType, "Type required")
+	assert(func and type(func) == "function", "Function must be of type 'function'")
+
+	hookedEvents[dataType] = hookedEvents[dataType] or {}
+	table.insert(hookedEvents[dataType], func)
+end
+
+function module:HookFunction(dataType, func)
+	assert(dataType, "Type required")
+	assert(func and type(func) == "function", "Function must be of type 'function'")
+
+	if hookedFunctions[dataType] then
+		warn("Overwriting hooked function for " .. tostring(dataType))
+	end
+
+	hookedFunctions[dataType] = func
+end
+
+if isClient then
+	function module.OnEvent(data)
+		if debug then print("ClientEvent:", data.Type) end
+		if data and data.Type then
+			local hookedFuncs = hookedEvents[data.Type]
+			if hookedFuncs then
+				for _, func in ipairs(hookedFuncs) do
+					spawnNow(func, data)
+				end
+			elseif (hookedWaits[data.Type] or 0) <= 0 then
+				warn("No functions hooked to " .. tostring(data.Type))
+			end
+		end
+	end
+
+	dataEvent.OnClientEvent:Connect(module.OnEvent)
+
+	function module.OnInvoke(data)
+		if debug then print("ClientFunction:", data.Type) end
+		if data and data.Type then
+			local hookedFunc = hookedFunctions[data.Type]
+			if hookedFunc then
+				return hookedFunc(data)
+			else
+				warn("No function hooked to " .. tostring(data.Type))
+			end
+		end
+	end
+
+	dataFunction.OnClientInvoke = module.OnInvoke
+
+	function module:FireLocal(data)
+		if not data or not data.Type then
+			warn("FireLocal: Type required")
+			return
+		end
+		module.OnEvent(data)
+	end
+
+	function module:InvokeLocal(data)
+		if not data or not data.Type then
+			warn("InvokeLocal: Type required")
+			return
+		end
+		return module.OnInvoke(data)
+	end
+
+	module:HookFunction("Ping", function()
+		return true
+	end)
+else
+	function module.OnEvent(plr, data)
+		if debug then print("ServerEvent:", plr, data.Type) end
+		if plr and data and data.Type then
+			local hookedFuncs = hookedEvents[data.Type]
+			if hookedFuncs then
+				for _, func in ipairs(hookedFuncs) do
+					spawnNow(func, plr, data)
+				end
+			elseif (hookedWaits[data.Type] or 0) <= 0 then
+				warn("No functions hooked to " .. tostring(data.Type))
+			end
+		end
+	end
+
+	dataEvent.OnServerEvent:Connect(module.OnEvent)
+
+	function module.OnInvoke(plr, data)
+		if debug then print("ServerFunction:", plr, data.Type) end
+		if plr and data and data.Type then
+			local hookedFunc = hookedFunctions[data.Type]
+			if hookedFunc then
+				return hookedFunc(plr, data)
+			else
+				warn("No function hooked to " .. tostring(data.Type))
+			end
+		end
+	end
+
+	dataFunction.OnServerInvoke = module.OnInvoke
+
+	function module:FireLocal(plr, data)
+		if not plr then
+			warn("FireLocal: Player required")
+			return
+		end
+		if not data or not data.Type then
+			warn("FireLocal: Type required")
+			return
+		end
+		module.OnEvent(plr, data)
+	end
+
+	function module:InvokeLocal(plr, data)
+		if not plr then
+			warn("InvokeLocal: Player required")
+			return
+		end
+		if not data or not data.Type then
+			warn("InvokeLocal: Type required")
+			return
+		end
+		return module.OnInvoke(plr, data)
+	end
+
+	module:HookFunction("Ping", function()
+		return true
+	end)
+end
+
+function module:FireClient(plr, data)
+	if not plr then
+		warn("FireClient: Player required")
+		return
+	end
+	if not data or not data.Type then
+		warn("FireClient: Type required")
+		return
+	end
+	assert(not self:IsClient(), "Must be called on server")
+	dataEvent:FireClient(plr, data)
+end
+
+function module:FireAllClient(data)
+	if not data or not data.Type then
+		warn("FireAllClients: Type required")
+		return
+	end
+	assert(not self:IsClient(), "Must be called on server")
+	dataEvent:FireAllClients(data)
+end
+
+function module:FireServer(data)
+	if not data or not data.Type then
+		warn("FireClient: Type required")
+		return
+	end
+	assert(self:IsClient(), "Must be called on client")
+	dataEvent:FireServer(data)
+end
+
+function module:InvokeClient(plr, data)
+	if not plr then
+		warn("InvokeClient: Player required")
+		return
+	end
+	if not data or not data.Type then
+		warn("InvokeClient: Type required")
+		return
+	end
+	assert(not self:IsClient(), "Must be called on server")
+	return dataFunction:InvokeClient(plr, data)
+end
+
+function module:InvokeServer(data)
+	if not data or not data.Type then
+		warn("InvokeServer: Type required")
+		return
+	end
+	assert(self:IsClient(), "Must be called on client")
+	return dataFunction:InvokeServer(data)
+end
+
+function module:GetStat(player, statName)
+	local data = self:Get(player)
+	return data and data[statName]
+end
+
+function module:SetStat(player, statName, value)
+	local data = self:Get(player)
+	if data then
+		data[statName] = value
+	end
+end
+
+function module:SaveData(player)
+	if not player then return end
+
+	local data = self:Get(player)
+	if not data then return end
+
+	-- Save general player data
+	local success, err = pcall(function()
+		--PlayerDataStore:SetAsync(player.UserId, data)
+	end)
+
+	if not success then
+		warn("Failed to save general data for", player.Name, ":", err)
+	end
+
+	-- Save house-specific data
+	local houseData = data["Houses"]
+	if houseData then
+		local successHouse, errHouse = pcall(function()
+			--HouseDataStore:SetAsync(player.UserId, houseData)
+		end)
+
+		if not successHouse then
+			warn("Failed to save house data for", player.Name, ":", errHouse)
+		end
+	else
+		
+	end
+end
+
+
+
+
+return module
