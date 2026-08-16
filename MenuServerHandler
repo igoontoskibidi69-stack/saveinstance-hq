@@ -1,0 +1,144 @@
+local DataStoreService = game:GetService("DataStoreService")
+local playerDataStore = DataStoreService:GetDataStore("PlayerDataStore")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+local dataEvent = ReplicatedStorage:WaitForChild("DataEvent") 
+local PlotManager = ReplicatedStorage:WaitForChild("Modules"):WaitForChild("DataManager") 
+
+-- Helper function to fetch player data or create default data
+local function getPlayerData(player)
+	local success, data = pcall(function()
+		return playerDataStore:GetAsync(player.UserId)
+	end)
+
+	if success then
+		return data or {Currency = 1000, Houses = {}, LastDailyClaim = 0}  -- Default data if none exists
+	else
+		warn("Failed to load data for player: " .. player.Name)
+
+		-- Send failure event to client
+		dataEvent:FireClient(player, {
+			Type = "InitialLoadFailed",
+			Message = "Unable to load your data from the server. Try another server."
+		})
+
+		return {Currency = 1000, Houses = {}, LastDailyClaim = 0}  -- Default fallback
+	end
+end
+
+
+-- Save player data to the DataStore
+local function savePlayerData(player, data)
+	local success, errorMessage = pcall(function()
+		playerDataStore:SetAsync(player.UserId, data)
+	end)
+	if not success then
+		warn("Failed to save data for player " .. player.Name .. ": " .. errorMessage)
+	end
+end
+
+-- Function to validate plot availability and house creation
+local function handlePlotSelection(player, plotId)
+	local data = getPlayerData(player)
+
+	-- Check if plot is already owned
+	if data.Houses[plotId] then
+		return false, "You already own a house on this plot!"
+	end
+
+	local plot = PlotManager:FindFirstChild(plotId)
+	if not plot then
+		return false, "Invalid plot ID!"
+	end
+
+	-- Check if player has enough currency to buy the plot
+	local plotCost = plot.Cost
+	if data.Currency < plotCost then
+		return false, "Insufficient funds to purchase this plot!"
+	end
+
+	-- Deduct the currency and update player data
+	data.Currency = data.Currency - plotCost
+	data.Houses[plotId] = {HouseID = plotId, CreatedAt = os.time()}
+	savePlayerData(player, data)
+
+	return true, "Plot purchased and house created!"
+end
+
+-- Function to handle loading houses for the player
+local function loadPlayerHouses(player)
+	local data = getPlayerData(player)
+
+	-- Ensure houses are loaded correctly
+	for plotId, houseData in pairs(data.Houses) do
+		-- Logic to load or create houses based on stored data
+		local plot = PlotManager:FindFirstChild(plotId)
+		if plot then
+			-- Code to spawn the house or apply any necessary house data here
+		else
+			warn("House plot missing: " .. plotId)
+		end
+	end
+end
+
+-- Handle daily rewards
+local function handleDailyReward(player)
+	local data = getPlayerData(player)
+
+	-- Check if the player can claim the daily reward
+	local currentTime = os.time()
+	if currentTime - data.LastDailyClaim < 86400 then -- 86400 seconds = 1 day
+		return false, "You can only claim your daily reward once every 24 hours!"
+	end
+
+	-- Reward the player with currency (you can modify this as needed)
+	local dailyRewardAmount = 100
+	data.Currency = data.Currency + dailyRewardAmount
+	data.LastDailyClaim = currentTime
+	savePlayerData(player, data)
+
+	return true, "Daily reward claimed: " .. dailyRewardAmount .. " currency!"
+end
+
+-- Handle client-side plot selection and house creation requests
+dataEvent.OnServerEvent:Connect(function(player, requestData)
+	local type = requestData.Type
+
+	if type == "SelectPlot" then
+		local plotId = requestData.PlotId
+		local success, message = handlePlotSelection(player, plotId)
+		dataEvent:FireClient(player, "PlotSelectionResponse", success, message)
+
+	elseif type == "LoadHouse" then
+		loadPlayerHouses(player)
+		dataEvent:FireClient(player, "HouseLoadComplete", "All houses loaded successfully!")
+
+	elseif type == "ClaimDailyReward" then
+		local success, message = handleDailyReward(player)
+		dataEvent:FireClient(player, "DailyRewardResponse", success, message)
+	elseif type == "" then
+
+	end
+end)
+
+-- Handle player joining and leaving the game
+game.Players.PlayerAdded:Connect(function(player)
+	local data = getPlayerData(player)
+	loadPlayerHouses(player)
+	print(player.Name .. " has joined, data loaded.")
+end)
+
+game.Players.PlayerRemoving:Connect(function(player)
+	-- You can save player data here if necessary (optional)
+	local data = getPlayerData(player)
+	savePlayerData(player, data)
+	print(player.Name .. " has left, data saved.")
+end)
+
+-- Ensure player data is saved when they leave the game
+game:BindToClose(function()
+	for _, player in ipairs(game.Players:GetPlayers()) do
+		local data = getPlayerData(player)
+		savePlayerData(player, data)
+	end
+end)
+
