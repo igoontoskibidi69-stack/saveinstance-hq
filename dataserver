@@ -308,27 +308,31 @@ DataManager:HookFunction("NewHouse", function(plr, data)
 		return { Success = false, Message = "Houses folder not found" }
 	end
 
-	local newHouse = Instance.new("IntValue")
+	local newHouse = Instance.new("Folder")
 	newHouse.Name = houseName
-	newHouse.Value = houseType
 	newHouse.Parent = housesFolder
+
+	local template = Instance.new("StringValue")
+	template.Name = "Template"
+	template.Value = tostring(houseType)
+	template.Parent = newHouse
 
 	local totalValue = Instance.new("IntValue")
 	totalValue.Name = "TotalValue"
 	totalValue.Value = 0
 	totalValue.Parent = newHouse
 
-	local savedHouses = DataManager:GetStat(plr, "Houses") or {}
-	local nextHouseIndex = #savedHouses + 1
+--	local savedHouses = DataManager:GetStat(plr, "Houses") or {}
+--	local nextHouseIndex = #savedHouses + 1
+--
+--	savedHouses[nextHouseIndex] = {
+	--	Name = houseName,
+		--HouseType = houseType,
+		--TotalValue = 0,
+	--}
 
-	savedHouses[nextHouseIndex] = {
-		Name = houseName,
-		HouseType = houseType,
-		TotalValue = 0,
-	}
-
-	DataManager:SetStat(plr, "Houses", savedHouses)
-	DataManager:SaveData(plr)
+	--DataManager:SetStat(plr, "Houses", savedHouses)
+	--DataManager:SaveData(plr)
 
 	local plot = Workspace.Plots:FindFirstChild("Plot_" .. plr.Name)
 
@@ -400,6 +404,73 @@ DataManager:HookEvent("SaveHouseData", function(player, data)
 	else
 		warn("No house data provided to save for", player.Name)
 	end
+end)
+
+DataManager:HookFunction("LoadHouse", function(player, data)
+	if typeof(data) ~= "table" then
+		return false
+	end
+
+	local house = data.House
+
+	if typeof(house) ~= "Instance" then
+		return false
+	end
+
+	local stats = workspace:FindFirstChild("Stats")
+	if not stats then
+		return false
+	end
+
+	local playerStats = stats:FindFirstChild(player.Name)
+	if not playerStats then
+		return false
+	end
+
+	local houses = playerStats:FindFirstChild("Houses")
+	if not houses or not house:IsDescendantOf(houses) then
+		return false
+	end
+
+	local plot = workspace.Plots:FindFirstChild("Plot_" .. player.Name)
+	if not plot then
+		return false
+	end
+
+	local houseModel = plot:FindFirstChild("House")
+	if not houseModel then
+		return false
+	end
+
+	houseModel:ClearAllChildren()
+
+	local serverHouses = game.ServerStorage:FindFirstChild("Houses")
+	if not serverHouses then
+		return false
+	end
+
+	local modelsToPutInHouse = serverHouses:FindFirstChild("ModelsToPutInHouse")
+
+	if not modelsToPutInHouse then
+		local defaultHouse = serverHouses:FindFirstChild("DefaultHouse")
+		if defaultHouse then
+			modelsToPutInHouse = defaultHouse.Parent:FindFirstChild("ModelsToPutInHouse")
+		end
+	end
+
+	if modelsToPutInHouse then
+		for _, object in ipairs(modelsToPutInHouse:GetChildren()) do
+			object:Clone().Parent = houseModel
+		end
+	end
+
+	local position = house:FindFirstChild("Position")
+
+	if position and position:IsA("Vector3Value") then
+		houseModel:PivotTo(CFrame.new(position.Value))
+	end
+
+	return true
 end)
 
 DataManager:HookFunction("SetPermission", function(plr, data)
