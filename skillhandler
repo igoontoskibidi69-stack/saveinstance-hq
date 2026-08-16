@@ -1,0 +1,88 @@
+-- params : ...
+
+local module = {}
+local players = game:GetService("Players")
+local player = players.LocalPlayer
+local stats = workspace:WaitForChild("Stats")
+local GUI = player:WaitForChild("PlayerGui"):WaitForChild("MainGUI")
+local modules = GUI:WaitForChild("Scripts")
+local storage = game:GetService("ReplicatedStorage")
+local repModules = storage:WaitForChild("Modules")
+require(repModules:WaitForChild("GlobalEnvironment"))()
+local statHandler = require(game.StarterGui.Modules:WaitForChild("ClientStats"))
+local GUIHandler = require(game.StarterGui.Modules:WaitForChild("GUIHandler"))
+local interpolate = require(repModules:WaitForChild("Interpolate"))
+local lerpHandler = require(repModules:WaitForChild("LerpHandler"))
+local skillDataModule = require(repModules:WaitForChild("SkillData"))
+local dataManager = require(repModules:WaitForChild("DataManager"))
+local skillFrame = GUI:WaitForChild("Bar"):WaitForChild("CharMenu"):WaitForChild("SkillFrame")
+local scrollFrame = skillFrame:WaitForChild("ScrollFrame")
+local stats = statHandler:GetStats()
+local skillData = stats:WaitForChild("SkillData")
+local skillSpacing = 6
+local curSkill = 0
+for skill,data in pairs(skillDataModule.Skills) do
+  local skillBox = scrollFrame:WaitForChild("SkillBox"):clone()
+  do
+    skillBox.Parent = scrollFrame
+    skillBox.Name = skill .. "_Box"
+    skillBox.Visible = true
+    skillBox:WaitForChild("Icon").ImageRectOffset = Vector2.new(48 * data.IconPosition.X, 48 * data.IconPosition.Y)
+    skillBox:WaitForChild("Title").Text = skill
+    skillBox.Position = UDim2.new(0, 0, 0, (skillBox.AbsoluteSize.Y + skillSpacing) * curSkill)
+    local bar = skillBox:WaitForChild("BarFrame")
+    local statValue = skillData:WaitForChild(skill)
+    local progressValue = statValue:WaitForChild("Progress")
+    local update = function()
+  
+  skillBox:WaitForChild("LevelLabel").Text = statValue.Value
+  local requireProgress = math.max(skillDataModule:GetRequireProgress(statValue.Value), 1)
+  local size = 0
+  if statValue.Value == 10 then
+    size = 1
+    bar:WaitForChild("BarFront"):WaitForChild("ImageLabel").ImageColor3 = Color3.new(1, 0.73333333333333, 0)
+    bar:WaitForChild("Star").Visible = true
+  else
+    if statValue.Value == 0 then
+      size = 1
+      bar:WaitForChild("BarFront"):WaitForChild("ImageLabel").ImageColor3 = Color3.new(0.86274509803922, 0.86274509803922, 0.86274509803922)
+      bar:WaitForChild("Star").Visible = false
+    else
+      size = progressValue.Value / requireProgress
+      bar:WaitForChild("BarFront"):WaitForChild("ImageLabel").ImageColor3 = Color3.new(0, 0.66666666666667, 1)
+      bar:WaitForChild("Star").Visible = false
+    end
+  end
+  bar:WaitForChild("BarFront").Size = UDim2.new(size, 0, 1, 0)
+  bar:WaitForChild("BarBack").Size = UDim2.new(1 - size, 0, 1, 0)
+  bar:WaitForChild("BarBack").Position = UDim2.new(size, 0, 0, 0)
+end
+
+    statValue.Changed:connect(update)
+    progressValue.Changed:connect(update)
+    update()
+    data.Name = skill
+    data.Value = statValue
+    curSkill = curSkill + 1
+  end
+end
+scrollFrame.CanvasSize = UDim2.new(0, 0, 0, (scrollFrame:WaitForChild("SkillBox").AbsoluteSize.Y + skillSpacing) * (curSkill) - skillSpacing)
+dataManager:HookEvent("SkillIncreased", function(data)
+  
+  if data.Skill then
+    local thisSkillData = skillDataModule.Skills[tostring(data.Skill)]
+    if thisSkillData then
+      if data.Level == 1 then
+        GUIHandler:Glow("You just learned a new skill!", tostring(data.Skill), thisSkillData.IconLarge, "SkillIncreased")
+      else
+        if data.Level == 10 then
+          GUIHandler:Glow("You\'ve maxed your " .. tostring(data.Skill) .. " skill!", "Congratulations!", thisSkillData.IconLarge, "SkillIncreased")
+        else
+          GUIHandler:Glow("Your " .. tostring(data.Skill) .. " skill increased!", "Level " .. tostring(data.Level), thisSkillData.IconLarge, "SkillIncreased")
+        end
+      end
+    end
+  end
+end
+)
+return module
