@@ -1,0 +1,3133 @@
+-- params : ...
+
+local module = {}
+local players = game:GetService("Players")
+local player = players.LocalPlayer
+local storage = game:GetService("ReplicatedStorage")
+local repModules = storage:WaitForChild("Modules")
+local inputService = game:GetService("UserInputService")
+require(repModules:WaitForChild("GlobalEnvironment"))()
+local enabled = false
+local GUI = player.PlayerGui:WaitForChild("MainGUI")
+local mouse = player:GetMouse()
+mouse.TargetFilter = workspace:WaitForChild("MouseIgnore")
+local plots = (workspace:WaitForChild("Plots"))
+local isPlacing = nil
+local main = GUI:WaitForChild("BuildMenu")
+main.Position = UDim2.new(0, 0, 1, -40)
+local moodFrame = GUI:WaitForChild("CharacterFrame"):WaitForChild("MoodFrame")
+local mouseDesc = GUI:WaitForChild("PlaceFrame")
+local paintFrame = GUI:WaitForChild("PaintFrame")
+paintFrame.Visible = false
+local list = main:WaitForChild("List")
+local scrollFrame = list:WaitForChild("ScrollFrame")
+local descFrame = list:WaitForChild("DescFrame")
+local buildBar = GUI:WaitForChild("BuildBar")
+buildBar.Position = UDim2.new(1, -buildBar.AbsoluteSize.X, 1, buildBar.AbsoluteSize.X + buildBar:WaitForChild("SettingsMenu").Position.Y.Offset)
+buildBar.Visible = true
+local runService = game:GetService("RunService")
+local renderStepped = runService.RenderStepped
+local heartbeat = runService.Heartbeat
+local sortModes = {function(a, b)
+  
+  do return a.Price or (a.BSPrice and a.BSPrice * 100000000) or 0 < b.Price or (b.BSPrice and b.BSPrice * 100000000) or 0 end
+  -- DECOMPILER ERROR: 1 unprocessed JMP targets
+end
+, function(a, b)
+  
+  do return b.Price or (b.BSPrice and b.BSPrice * 100000000) or 0 < a.Price or (a.BSPrice and a.BSPrice * 100000000) or 0 end
+  -- DECOMPILER ERROR: 1 unprocessed JMP targets
+end
+, function(a, b)
+  
+  do return a.Name < b.Name end
+  -- DECOMPILER ERROR: 1 unprocessed JMP targets
+end
+, function(a, b)
+  
+  do return a.InteractionType or a.Type or "zzzzzz" < b.InteractionType or b.Type or "zzzzzz" end
+  -- DECOMPILER ERROR: 1 unprocessed JMP targets
+end
+}
+local curSort = 1
+local curPath = nil
+local transitionTime = 0.2
+local rightClickDeadzone = 10
+local acceptedDiff = 0.12
+local buildModeChanged = Instance.new("BindableEvent")
+buildModeChanged.Name = "BuildModeChanged"
+buildModeChanged.Parent = script
+module.BuildModeChanged = buildModeChanged.Event
+local modules = game.Players.LocalPlayer.PlayerGui.Modules
+local characterHandler = require(modules:WaitForChild("CharacterHandler"))
+local cameraModule = require(modules:WaitForChild("CameraHandler"))
+local categories = require(modules:WaitForChild("Categories"))
+local items = require(storage:WaitForChild("Modules"):WaitForChild("Items"))
+local clientStats = require(modules:WaitForChild("ClientStats"))
+local inventory = require(modules:WaitForChild("Inventory"))
+local productPurchaser = require(modules:WaitForChild("ProductPurchaser"))
+local soundHandler = require(modules:WaitForChild("SoundHandler"))
+local GUIHandler = require(modules:WaitForChild("GUIHandler"))
+local buildSettings = (require(modules:WaitForChild("BuildSettings")))
+-- Instead of this:
+-- local Hotbar = require(script.Parent.Hotbar)
+
+-- Do this:
+local hotbar
+local function getHotbar()
+	hotbar = hotbar or require(script.Parent.Hotbar)
+	return hotbar
+end
+
+
+
+local interactionHandler = (require(modules:WaitForChild("InteractionHandler")))
+local utils = repModules
+local interpolate = require(utils:WaitForChild("Interpolate"))
+local textHandler = require(utils:WaitForChild("TextModule"))
+local wallHandler = require(repModules:WaitForChild("WallHandler"))
+local groundHandler = require(repModules:WaitForChild("GroundHandler"))
+local fenceHandler = require(repModules:WaitForChild("FenceHandler"))
+local triangulate = require(repModules:WaitForChild("Triangulate"))
+local getTarget = require(repModules:WaitForChild("GetTarget"))
+local roofHandler = require(repModules:WaitForChild("RoofHandler"))
+local counterHandler = require(repModules:WaitForChild("CounterHandler"))
+local plotHandler = require(repModules:WaitForChild("PlotHandler"))
+local dataManager = require(repModules:WaitForChild("DataManager"))
+local tempFolder = game:GetService("Lighting"):WaitForChild("TempFolder")
+module.InBuildMode = function(self)
+  
+  return enabled
+end
+
+local gridPlane = nil
+
+module.Enter = function(self)
+	-- 
+
+	local plot = plotHandler:GetPlot()
+	------print("Got plot:", plot)
+
+	if enabled then
+		--print("Already enabled, returning early")
+		return
+	end
+
+	if not plot then
+		--print("No plot found, returning early")
+		return
+	end
+
+	if not plotHandler:IsOnPlot(plot, player) then
+		--print("Player not on plot, returning false")
+		return false
+	end
+
+	--print("Getting character parts...")
+	local root = characterHandler:GetRoot()
+	local humanoid = characterHandler:GetObject("Humanoid")
+	local torso = characterHandler:GetObject("Torso")
+
+	if not root then print("Root missing!") return false end
+	if not humanoid then print("Humanoid missing!") return false end
+	if not torso then print("Torso missing!") return false end
+
+	------print("Setting humanoid state to Physics and anchoring torso")
+	humanoid:ChangeState("Physics")
+	torso.Anchored = true
+
+	if root:FindFirstChild("AttachWeld") then
+		--print("Destroying AttachWeld")
+		root.AttachWeld:Destroy()
+	else
+		print("No AttachWeld found")
+	end
+
+	spawn(function()
+		--print("Spawned server invoke function")
+		local pos, barrier = dataManager:InvokeServer({Type = "EnterBuild"})
+		--print("Server responded:", pos, barrier)
+		
+		--if game:GetService("RunService"):IsStudio() then
+		--	-- nthing
+		--	--GUIHandler.AlertBox("2016 Building Style only!", "2016 Building Style only!")
+		--else
+		--	GUIHandler.AlertBox("2016 Building Style only!", "2016 Building Style only!")
+		--end
+		
+		if barrier then
+			barrier:Destroy()
+		else
+			print("No barrier returned!")
+		end
+
+		if pos then
+			-- Check if player is already near target position
+			local distance = (root.Position - pos.Position).Magnitude
+			if distance > 5 then -- Only teleport if far away
+				root.CFrame = pos
+			else
+				print("Already close to build position, no teleport needed")
+			end
+		else
+			print("No position returned!")
+		end
+	end)
+
+	spawn(function()
+		interactionHandler.CloseMenu()
+	end)
+
+
+	local TweenService = game:GetService("TweenService")
+
+	local function enterBuildMode()
+	
+
+		main.Visible = true
+		
+
+		local mainTween = TweenService:Create(main, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 1, -190)})
+		local moodFrameTween = TweenService:Create(moodFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 1, 270)})
+		local buildBarTween = TweenService:Create(buildBar, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(1, -buildBar.AbsoluteSize.X, 1, -220)})
+
+		mainTween:Play()
+		moodFrameTween:Play()
+		buildBarTween:Play()
+
+		
+		local gridPlane = plot:WaitForChild("Ground"):Clone()
+		gridPlane.Name = "GridPlane"
+		gridPlane.CanCollide = false
+		gridPlane.Locked = true
+		gridPlane.Transparency = 1
+		gridPlane.Parent = plot
+
+		local gridTexture = gridPlane:WaitForChild("Grid")
+
+		interpolate(1, "Out", "Quad", function(t)
+			gridTexture.Transparency = 1 - t
+		end, true)
+
+		enabled = true
+		buildModeChanged:Fire(true)
+		cameraModule:BuildMode(plot)
+
+
+		for _, model in pairs(plot.House.Pools:GetChildren()) do
+			if model:FindFirstChild("HitBox") then
+				model.HitBox.CanCollide = true
+			else
+				print("No HitBox in pool:", model.Name)
+			end
+		end
+
+	end
+	
+
+	coroutine.wrap(enterBuildMode)()
+
+	spawn(function()
+		soundHandler:Play("BuildSong", 1)
+	end)
+
+	return true
+end
+
+
+local TweenService = game:GetService("TweenService")
+
+module.Exit = function(self)
+	local plot = plotHandler:GetPlot()
+	if not enabled or not plot then
+		return
+	end
+
+	-- Disable collisions for all pools
+	for _, model in pairs(plot.House.Pools:GetChildren()) do
+		if model:FindFirstChild("HitBox") then
+			model.HitBox.CanCollide = false
+		end
+	end
+
+	-- Notify the server that build mode is exited
+	dataManager:FireServer({Type = "ExitBuild"})
+
+	-- Ensure grid texture exists
+	local gridTexture = gridPlane and gridPlane:FindFirstChild("Grid")
+	if gridTexture then
+		-- Animate grid texture transparency to 1 (fade out)
+		interpolate(1, "Out", "Quad", function(t)
+			gridTexture.Transparency = t
+		end, true)
+	end
+
+	-- Disable build mode
+	enabled = false
+	buildModeChanged:Fire(false)
+
+	-- Stop placing objects and update the list
+	coroutine.wrap(module.StopPlacing)()
+	coroutine.wrap(changeList, false)()
+
+	-- Equip the tool and update UI state
+	module:EquipTool()
+	getHotbar():SetState(true)
+
+	-- Create smooth tweens for UI elements to exit build mode
+	local mainTween = TweenService:Create(main, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 1, -40)})
+	local buildBarTween = TweenService:Create(buildBar, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(1, -buildBar.AbsoluteSize.X, 1, buildBar.AbsoluteSize.X + buildBar:WaitForChild("SettingsMenu").Position.Y.Offset)})
+	local moodFrameTween = TweenService:Create(moodFrame, TweenInfo.new(0.5, Enum.EasingStyle.Quart, Enum.EasingDirection.Out), {Position = UDim2.new(0, 0, 1, -40)})
+
+	-- Play the tweens
+	mainTween:Play()
+	buildBarTween:Play()
+	moodFrameTween:Play()
+
+	-- Stop build music in the background
+	coroutine.wrap(function()
+		soundHandler:Stop("BuildSong", 1)
+	end)()
+
+	-- Exit build mode from camera module
+	cameraModule:ExitBuildMode()
+
+	-- Hide the main UI element
+	main.Visible = false
+
+
+	local camera = workspace.CurrentCamera
+	camera.CameraType = Enum.CameraType.Custom
+
+	-- Restore player state
+	local torso = player.Character:WaitForChild("Torso")
+	if torso then
+		torso.Anchored = false
+	end
+	local humanoid = player.Character:WaitForChild("Humanoid")
+	if humanoid then
+		humanoid:ChangeState("Running")
+	end
+	
+	-- Destroy the grid plane and clean up
+	local plot = game.Workspace.Plots:WaitForChild("Plot_" .. player.Name)
+	local gridPlane = plot:FindFirstChild("GridPlane")
+
+	local plot = game.Workspace.Plots:WaitForChild("Plot_" .. player.Name)
+	local gridPlane = plot:FindFirstChild("GridPlane")
+
+	if gridPlane then
+		gridPlane:Destroy()
+	else
+		plot:WaitForChild("GridPlane"):Destroy()
+	end
+end
+
+
+characterHandler.CharacterChanged:connect(module.Exit)
+local gridSize = groundHandler:GetGridSize()
+module.ConvertPos = function(self, pos, incSize, offset, fromBorder)
+	local plot = plotHandler:GetPlot()
+	if not plot or not plot:FindFirstChild("Ground") then
+		warn("Plot or Ground missing!")
+		return CFrame.new(pos) -- fallback
+	end
+
+	fromBorder = tonumber(fromBorder) or 0
+	incSize = incSize or gridSize
+	offset = offset or 0
+
+	local center = plot.Ground.CFrame
+	local gridPos = center:Inverse() * CFrame.new(pos)
+
+	local x = gridPos.X
+	local z = gridPos.Z
+
+	local halfSize = 75
+	local borderSize = fromBorder * gridSize
+	local minBound = -halfSize + borderSize
+	local maxBound = halfSize - borderSize
+
+	local roundedX = offset + round((x - offset) / incSize) * incSize
+	local clampedX = math.clamp(roundedX, minBound, maxBound)
+
+	local roundedZ = offset + round((z - offset) / incSize) * incSize
+	local clampedZ = math.clamp(roundedZ, minBound, maxBound)
+
+	return center * CFrame.new(clampedX, gridPos.Y, clampedZ)
+end
+
+
+module.GetMousePos = function(self)
+	local plot = plotHandler:GetPlot()
+	if not plot or not plot:FindFirstChild("Ground") then
+		warn("Plot or Ground not found")
+		return CFrame.new()
+	end
+
+	if not mouse or not mouse.Hit then
+		warn("Mouse or Mouse.Hit not available")
+		return CFrame.new()
+	end
+
+	local center = plot.Ground.CFrame
+	local gridPos = center:Inverse() * CFrame.new(mouse.Hit.Position)
+	local rotation = gridPos - gridPos.Position
+
+	local clampedX = math.clamp(gridPos.X, -75, 75)
+	local clampedZ = math.clamp(gridPos.Z, -75, 75)
+	local finalCFrame = CFrame.new(clampedX, gridPos.Y, clampedZ) * rotation
+
+	return center * finalCFrame
+end
+
+
+module.CastRay = function(self, ray, ignore)
+  
+  local plot = plotHandler:GetPlot()
+  local ignoreTable = {mouse.TargetFilter, plot and plot.PrimaryPart or nil, plot and plot:findFirstChild("Water") or nil, workspace.Terrain, gridPlane}
+  if ignore then
+    if type(ignore) == "table" then
+      for _,obj in pairs(ignore) do
+        table.insert(ignoreTable, obj)
+      end
+    else
+      do
+        table.insert(ignoreTable, ignore)
+        local poolHit, poolPosition, poolNormal = nil, nil, nil
+        local cast = function()
+    
+    local hit, position, normal = workspace:FindPartOnRayWithIgnoreList(ray, ignoreTable, true, true)
+    if hit and hit.Name == "HitBox" and hit.Parent and hit.Parent.Name == "Pool" then
+      poolHit = hit
+      table.insert(ignoreTable, hit)
+      return 
+    else
+      if hit and hit.Parent and hit.Parent.Name == "Poles" then
+        table.insert(ignoreTable, hit)
+        return
+      else
+        if (hit and hit.Name == "GroundEnd") or not hit then
+          return poolHit, poolPosition, poolNormal
+        else
+          return hit, position, normal
+        end
+      end
+    end
+  end
+
+        return cast()
+      end
+    end
+  end
+end
+
+local Players = game:GetService("Players")
+local UserInputService = game:GetService("UserInputService")
+local RunService = game:GetService("RunService")
+
+local player = Players.LocalPlayer
+local camera = workspace.CurrentCamera
+
+module.CastMouseRay = function(self, ignore)
+	if not camera then return nil end
+
+	local mousePos = UserInputService:GetMouseLocation()
+	local viewportRay = camera:ScreenPointToRay(mousePos.X, mousePos.Y - 36)
+
+	local raycastParams = RaycastParams.new()
+	raycastParams.FilterDescendantsInstances = type(ignore) == "table" and ignore or {ignore}
+	raycastParams.FilterType = Enum.RaycastFilterType.Exclude
+
+	return workspace:Raycast(viewportRay.Origin, viewportRay.Direction * 9000, raycastParams)
+end
+
+
+
+
+round = function(num, idp)
+  
+  local mult = 10 ^ (idp or 0)
+  return math.floor(num * mult + 0.5) / mult
+end
+
+module.GetParts = function(self, model)
+  
+  local data = {}
+  local search = function(parent)
+    
+    for _,obj in pairs(parent:GetChildren()) do
+      if obj:IsA("BasePart") then
+        table.insert(data, obj)
+      else
+        if obj:IsA("UnionOperation") then
+          table.insert(data, obj)
+        end
+      end
+    end
+  end
+
+  search(model)
+  return data
+end
+
+module.SetColor = function(self, data, color, ignoreChildItems)
+  
+  for obj,partData in pairs(data) do
+    if (ignoreChildItems and not partData.ChildItem) or not ignoreChildItems then
+      if obj:IsA("SpecialMesh") then
+        obj.VertexColor = Vector3.new(color.r, color.g, color.b)
+      else
+        if partData.Transparency then
+          obj.Transparency = 0.5
+        else
+          obj.BrickColor = color
+          if obj:IsA("UnionOperation") then
+            obj.UsePartColor = true
+          end
+        end
+      end
+    end
+    if obj:IsA("SpecialMesh") then
+      obj.VertexColor = partData.Color
+    else
+      if partData.Transparency then
+        obj.Transparency = partData.Transparency
+      else
+        obj.BrickColor = partData.Color
+        if partData.MultiColor then
+          obj.UsePartColor = false
+        end
+      end
+    end
+  end
+end
+
+module.GetColorList = function(self, model)
+  
+  local data = {}
+  local search = function(parent, isChildItem)
+    
+    for _,obj in pairs(parent:GetChildren()) do
+      -- DECOMPILER ERROR at PC51: Unhandled construct in 'MakeBoolean' P3
+
+      if (obj.Name:sub(1, 8) == "WallPart" and obj.Parent ~= model) or (((obj.Name == "Left" or obj.Name == "Right") and not obj:findFirstChild("Copied")) or obj.Name == "Left" or obj.Name ~= "Right") then
+        local objData = nil
+        if obj:IsA("UnionOperation") then
+          objData = {Color = obj.BrickColor, MultiColor = not obj.UsePartColor}
+        else
+          if obj:IsA("BasePart") then
+            objData = {Color = obj.BrickColor}
+          else
+            if obj:IsA("SpecialMesh") then
+              objData = {Color = obj.VertexColor}
+            else
+              if obj:IsA("Decal") or obj:IsA("Texture") then
+                objData = {Transparency = obj.Transparency}
+              end
+            end
+          end
+        end
+        if isChildItem then
+          if obj.Name:sub(1, 8) == "WallPart" or obj.Name == "CounterPart" then
+            do
+              objData.ChildItem = not objData
+              data[obj] = objData
+              --l_0_15_r3(obj, isChildItem or tostring(parent) == "ItemHolder")
+              -- DECOMPILER ERROR at PC129: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+              -- DECOMPILER ERROR at PC129: LeaveBlock: unexpected jumping out IF_STMT
+
+              -- DECOMPILER ERROR at PC129: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+              -- DECOMPILER ERROR at PC129: LeaveBlock: unexpected jumping out IF_STMT
+
+              -- DECOMPILER ERROR at PC129: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+              -- DECOMPILER ERROR at PC129: LeaveBlock: unexpected jumping out IF_STMT
+
+            end
+          end
+        end
+      end
+    end
+    -- DECOMPILER ERROR: 6 unprocessed JMP targets
+  end
+
+  search(model)
+  return data
+end
+
+local toggleState = true
+main.PlaceBox.Toggle.MouseButton1Click:connect(function()
+  
+  toggleState = not toggleState
+  main.PlaceBox.Toggle.Text = toggleState and "X" or ""
+end
+)
+module.GetTarget = function(self, target, real)
+	local plot = plotHandler:GetPlot()
+	if target and typeof(target) == "Instance" and target:IsDescendantOf(plot) then
+		return getTarget(target, player, real)
+	end
+	return nil, nil -- Explicit fallback
+end
+
+local curTool, oldTarget, oldType, targetColors = nil, nil, nil, nil
+
+module.MoneyLabel = function(self, value, pos)
+	if typeof(value) ~= "number" then
+		warn("[MoneyLabel] Invalid value:", value)
+		return
+	end
+
+	if math.abs(value) < 1 then return end
+
+	local part = storage.LabelPart:Clone()
+	part.Parent = workspace:WaitForChild("MouseIgnore")
+	part.CFrame = CFrame.new(pos)
+
+	local gui = part:FindFirstChild("BillboardGui")
+	local label = gui and gui:FindFirstChild("Money")
+	local shadow = label and label:FindFirstChild("TextLabel")
+
+	if label then
+		if value >= 0 then
+			label.TextColor3 = Color3.new(0, 0.67, 0) -- green
+			label.Text = "$ " .. textHandler:SeparateNumber(value)
+		else
+			label.TextColor3 = Color3.new(1, 0, 0) -- red
+			label.Text = "-$ " .. textHandler:SeparateNumber(-value)
+		end
+
+		if shadow then
+			shadow.Text = label.Text
+		end
+
+		-- Floating animation
+		task.spawn(function()
+			local start = tick()
+			while tick() - start < 2 do
+				local t = (tick() - start) * 2.5
+				gui.StudsOffset = Vector3.new(0, t * 2, 0)
+				local fade = math.max(0, (t - 1.5) * 2)
+				label.TextTransparency = fade
+				shadow.TextTransparency = 0.5 + fade * 0.5
+				shadow.TextStrokeTransparency = 0.8 + fade * 0.2
+				game:GetService("RunService").RenderStepped:Wait()
+			end
+			part:Destroy()
+		end)
+
+		game:GetService("Debris"):AddItem(part, 3)
+	end
+end
+
+
+module.BlockbuxLabel = function(self, value, pos)
+  
+  if math.abs(value) >= 1 then
+    local part = storage.LabelPart:clone()
+    do
+      part.Parent = workspace:WaitForChild("MouseIgnore")
+      part.CFrame = CFrame.new(pos)
+      if value >= 0 or not Color3.new(0.66666666666667, 0, 1) then
+        part.BillboardGui.Money.TextColor3 = Color3.new(0.66666666666667, 0, 1)
+        if value >= 0 or not "-B$ " .. textHandler:SeparateNumber(-value) then
+          do
+            part.BillboardGui.Money.Text = "B$ " .. textHandler:SeparateNumber(value)
+            part.BillboardGui.Money.TextLabel.Text = part.BillboardGui.Money.Text
+            spawn(function()
+    
+    local start = tick()
+    local time = 0
+    while time < 2 do
+      renderStepped:wait()
+      time = (tick() - start) * 2.5
+      part.BillboardGui.StudsOffset = Vector3.new(0, time * 2, 0)
+      part.BillboardGui.Money.TextTransparency = math.max(0, (time - 1.5) * 2)
+      part.BillboardGui.Money.TextLabel.TextTransparency = 0.5 + part.BillboardGui.Money.TextTransparency * 0.5
+      part.BillboardGui.Money.TextLabel.TextStrokeTransparency = 0.8 + part.BillboardGui.Money.TextTransparency * 0.2
+    end
+    part:Destroy()
+  end
+)
+            game:GetService("Debris"):AddItem(part, 3)
+            -- DECOMPILER ERROR at PC78: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+            -- DECOMPILER ERROR at PC78: LeaveBlock: unexpected jumping out IF_STMT
+
+            -- DECOMPILER ERROR at PC78: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+            -- DECOMPILER ERROR at PC78: LeaveBlock: unexpected jumping out IF_STMT
+
+          end
+        end
+      end
+    end
+  end
+end
+
+module.ErrorLabel = function(self, error, pos)
+  
+  if error then
+    local part = storage.ErrorPart:clone()
+    do
+      part.Parent = workspace.MouseIgnore
+      part.CFrame = CFrame.new(pos)
+      part.BillboardGui.Frame.TextLabel.Text = error
+      local width = part.BillboardGui.Frame.TextLabel.TextBounds.X + 20
+      part.BillboardGui.Size = UDim2.new()
+      local tweenTime = 0.1
+      local totalTime = 2.6
+      spawn(function()
+    
+    local start = tick()
+    local time = 0
+    while time < totalTime do
+      if time < tweenTime then
+        part.BillboardGui.Size = UDim2.new(0, width * time / tweenTime, 0, 30 * time / tweenTime)
+      else
+        if totalTime - tweenTime < time then
+          part.BillboardGui.Size = UDim2.new(0, width * (totalTime - time) / tweenTime, 0, 30 * (totalTime - time) / tweenTime)
+        end
+      end
+      renderStepped:wait()
+      time = tick() - start
+    end
+    part:Destroy()
+  end
+)
+      game:GetService("Debris"):AddItem(part, 5)
+    end
+  end
+end
+
+local oldFrame, oldPaintTarget, oldPaintTargetType = nil, nil, nil
+local materialIcon = require(storage:WaitForChild("Modules"):WaitForChild("MaterialData"))
+local matNum = 1
+for material,data in pairs(materialIcon) do
+  local btn = paintFrame.ClipFrame.MaterialFrame.Slot:clone()
+  btn.Parent = paintFrame.ClipFrame.MaterialFrame
+  btn.Name = "Slot" .. matNum
+  local xDelta, yDelta = (matNum - 1) % 6 / 5, math.floor((matNum - 1) / 6)
+  btn.Position = UDim2.new(xDelta, -(btn.AbsoluteSize.X + paintFrame.ClipFrame.MaterialFrame.ScrollBarThickness + 2) * xDelta, 0, btn.AbsoluteSize.Y * yDelta)
+  btn.Image = "rbxassetid://" .. ((type(data.Main) == "string" and materialIcon[data.Main] and materialIcon[data.Main].Main) or tonumber(data.Main) or "")
+  btn.Overlay.Image = "rbxassetid://" .. (data.Overlay or "")
+  btn.Overlay.ImageTransparency = data.OverlayTransparency or 0
+  local val = Instance.new("StringValue", btn)
+  val.Name = "Material"
+  val.Value = material
+  btn.Visible = true
+  matNum = matNum + 1
+end
+paintFrame.ClipFrame.MaterialFrame.CanvasSize = UDim2.new(0, 0, 0, (math.floor((matNum - 2) / 6) + 1) * 64 - 1)
+local prevLabel = nil
+local colors = 128
+do
+  for i = 0, colors - 1 do
+    local color = BrickColor.palette(i)
+    local btn = Instance.new("ImageLabel", paintFrame.ClipFrame.ColorFrame)
+    btn.Name = "Color" .. i
+    btn.Size = UDim2.new(1 / colors, 0, 1, 0)
+    btn.Image = "rbxassetid://296022306"
+    btn.ImageRectSize = Vector2.new(math.max(3, btn.AbsoluteSize.X), 16)
+    btn.ImageRectOffset = Vector2.new((i == 0 and 0) or (i == colors - 1 and 16 - btn.ImageRectSize.x) or 3, 0)
+    btn.SliceCenter = Rect.new(0, btn.ImageRectSize.X, btn.ImageRectSize.X, 16 - btn.ImageRectSize.X * 2)
+    btn.ScaleType = "Slice"
+    btn.ImageColor3 = color.Color
+    btn.BackgroundTransparency = 1
+    btn.Position = UDim2.new(0, prevLabel and prevLabel.Position.X.Offset + prevLabel.AbsoluteSize.X or 0, 0, 0)
+    btn.BorderSizePixel = 0
+    btn.ZIndex = 2
+    prevLabel = btn
+  end
+end
+local oldPaintData = {}
+module.ShowPaint = function(self, target, realTarget)
+  
+  local object, objectType = module:GetTarget(target)
+  if oldFrame and object ~= oldPaintTarget then
+    if target ~= "KeepPaint" then
+      if oldPaintTargetType == "Wall" then
+        wallHandler:SetAppearanceData(oldPaintTarget, tostring(realTarget):sub(1, 1), oldPaintData[1])
+      else
+        do
+          for i = 1, 4 do
+            wallHandler:SetAppearanceData(oldPaintTarget, i, oldPaintData[i])
+          end
+        end
+      end
+    end
+    do
+      oldFrame:TweenPosition(UDim2.new(0.5, -200, 1, 0), "In", "Sine", transitionTime, true)
+      oldPaintTarget = nil
+      oldPaintTargetType = nil
+      oldTarget = nil
+      do
+        local thisFrame = oldFrame
+        oldFrame = nil
+        wait(transitionTime)
+        thisFrame:Destroy()
+        thisFrame = nil
+        if target == "KeepPaint" then
+          return false
+        end
+        if object and objectType ~= "Poles" and objectType ~= "Pool" and object ~= oldPaintTarget and wallHandler:GetAppearanceData(object, 1, realTarget) then
+          local newFrame = paintFrame:clone()
+          oldFrame = newFrame
+          oldFrame.Parent = GUI
+          oldFrame.Visible = true
+          oldFrame.Position = UDim2.new(0.5, oldFrame.AbsoluteSize.X * -0.5, 1, 0)
+          oldPaintTarget = object
+          oldPaintTargetType = objectType
+          oldPaintData = {}
+          local newData = {}
+          local price = 0
+          local oldSelected = nil
+          local getPrice = function()
+    
+    local newPrice = 0
+    for i = 1, 4 do
+      local oldAppData = oldPaintData[i]
+      local newAppData = newData[i]
+      if oldAppData[1] ~= newAppData[1] then
+        newPrice = newPrice + 5
+      end
+      if oldAppData[2] ~= newAppData[2] then
+        newPrice = newPrice + 20
+      end
+    end
+    price = newPrice
+    if oldFrame then
+      oldFrame.ButtonFrame.Money.Text = "$ " .. textHandler:SeparateNumber(price)
+      if clientStats:Get("Money") < price then
+        oldFrame.ButtonFrame.Buy.ImageTransparency = 0.5
+        oldFrame.ButtonFrame.Money.TextColor3 = Color3.new(1, 0, 0)
+      else
+        oldFrame.ButtonFrame.Buy.ImageTransparency = 0
+        oldFrame.ButtonFrame.Money.TextColor3 = Color3.new(0, 0.66666666666667, 0)
+      end
+    end
+  end
+
+          local updateButton = function(num)
+    
+    local btn = oldFrame.Slots:findFirstChild("Slot" .. num)
+    if btn then
+      local color, material = unpack(newData[num])
+      if color then
+		local data = materialIcon.Plastic
+        btn.Image = "rbxassetid://" .. ((type(data.Main) == "string" and materialIcon[data.Main] and materialIcon[data.Main].Main) or tonumber(data.Main) or "")
+        btn.Overlay.Image = "rbxassetid://" .. (data.Overlay or "")
+        btn.Overlay.ImageTransparency = data.OverlayTransparency or 0
+        btn.ImageColor3 = color.Color
+        btn.Background.ImageTransparency = 0
+        return true
+      else
+        do
+          do
+            btn.Image = "rbxassetid://"
+            btn.Overlay.Image = "rbxassetid://"
+            btn.ImageColor3 = Color3.new(1, 1, 1)
+            btn.Background.ImageTransparency = 0.8
+            return false
+          end
+        end
+      end
+    end
+  end
+
+          local updateMaterialButton = function(num)
+    
+    local color, material = unpack(newData[num])
+    for _,btn in pairs(oldFrame.ClipFrame.MaterialFrame:GetChildren()) do
+      if color and material and btn and btn.Name ~= "Slot" then
+        btn.ImageColor3 = color.Color
+        btn.SelectedFrame.Visible = btn.Material.Value == material
+      end
+    end
+    -- DECOMPILER ERROR: 2 unprocessed JMP targets
+  end
+
+          local changeGroup = function(num)
+    
+    local data = newData[num]
+    if objectType == "Wall" then
+      num = tostring(realTarget):sub(1, 1)
+    end
+    wallHandler:SetAppearanceData(object, num, data)
+    getPrice()
+  end
+
+          local updateGroup = function(num, data)
+    
+    if not data then
+      newData[num] = oldPaintData[num]
+      changeGroup(num)
+      updateButton(num)
+      updateMaterialButton(num)
+    end
+  end
+
+          do
+            local select = function(num)
+    
+    if oldSelected == num then
+      oldSelected = nil
+      num = nil
+    end
+    for _,slot in pairs(oldFrame.Slots:GetChildren()) do
+      if slot.Name == "Slot" .. tostring(num) then
+        slot.SelectedFrame.Visible = true
+      else
+        slot.SelectedFrame.Visible = false
+      end
+    end
+    if num then
+      oldSelected = num
+      if oldPaintData[num][1] == 0 then
+        oldFrame.ClipFrame.ColorTitle.Visible = false
+        oldFrame.ClipFrame.ColorFrame.Visible = false
+        oldFrame.ClipFrame.MaterialFrame.Visible = true
+        oldFrame.ClipFrame.MaterialTitle.Visible = true
+        oldFrame:TweenSizeAndPosition(UDim2.new(0, oldFrame.AbsoluteSize.X, 0, 310), UDim2.new(0.5, oldFrame.AbsoluteSize.X * -0.5, 0.5, -155), "In", "Sine", transitionTime, true)
+        updateMaterialButton(num)
+      else
+        if oldPaintData[num][2] == 0 then
+          oldFrame.ClipFrame.ColorTitle.Visible = true
+          oldFrame.ClipFrame.ColorFrame.Visible = true
+          oldFrame.ClipFrame.ColorTitle.Position = UDim2.new(0, 5, 1, -85)
+          oldFrame.ClipFrame.ColorFrame.Position = UDim2.new(0, 6, 1, -55)
+          oldFrame.ClipFrame.MaterialFrame.Visible = false
+          oldFrame.ClipFrame.MaterialTitle.Visible = false
+          oldFrame:TweenSizeAndPosition(UDim2.new(0, oldFrame.AbsoluteSize.X, 0, 200), UDim2.new(0.5, oldFrame.AbsoluteSize.X * -0.5, 0.5, -100), "In", "Sine", transitionTime, true)
+        else
+          oldFrame.ClipFrame.ColorTitle.Visible = true
+          oldFrame.ClipFrame.ColorFrame.Visible = true
+          oldFrame.ClipFrame.ColorTitle.Position = UDim2.new(0, 5, 1, -264)
+          oldFrame.ClipFrame.ColorFrame.Position = UDim2.new(0, 6, 1, -235)
+          oldFrame.ClipFrame.MaterialFrame.Visible = true
+          oldFrame.ClipFrame.MaterialTitle.Visible = true
+          oldFrame:TweenSizeAndPosition(UDim2.new(0, oldFrame.AbsoluteSize.X, 0, 380), UDim2.new(0.5, oldFrame.AbsoluteSize.X * -0.5, 0.5, -190), "In", "Sine", transitionTime, true)
+          updateMaterialButton(num)
+        end
+      end
+    else
+      oldFrame:TweenSizeAndPosition(UDim2.new(0, oldFrame.AbsoluteSize.X, 0, 118), UDim2.new(0.5, oldFrame.AbsoluteSize.X * -0.5, 0.5, -59), "In", "Sine", transitionTime, true)
+    end
+  end
+
+            do
+              do
+                for _,slot in pairs(oldFrame.Slots:GetChildren()) do
+                  local num = tonumber(slot.Name:sub(5))
+                  oldPaintData[num] = {wallHandler:GetAppearanceData(object, (objectType == "Wall" and (num ~= 1 or not tostring(realTarget):sub(1, 1)) and 0) or num)}
+                  newData[num] = {wallHandler:GetAppearanceData(object, (objectType == "Wall" and (num ~= 1 or not tostring(realTarget):sub(1, 1)) and 0) or num)}
+                  local canSelect = updateButton(num)
+                  if canSelect then
+                    slot.MouseButton1Click:connect(function()
+    
+    if newFrame == oldFrame then
+      select(num)
+    end
+  end
+)
+                    slot.MouseButton2Click:connect(function()
+    
+    if newFrame == oldFrame and oldSelected then
+      for j = 1, 2 do
+        if newData[num] and newData[num][j] ~= 0 and newData[oldSelected][j] and newData[oldSelected][j] ~= 0 then
+          newData[oldSelected][j] = newData[num][j]
+        end
+      end
+      updateGroup(oldSelected, newData[oldSelected])
+    end
+  end
+)
+                  end
+                  slot.SelectedFrame.Visible = false
+                end
+              end
+              for _,btn in pairs(oldFrame.ClipFrame.MaterialFrame:GetChildren()) do
+                if btn and btn.Name ~= "Slot" then
+                  btn.MouseButton1Click:connect(function()
+    
+    if newFrame == oldFrame then
+      updateGroup(oldSelected, {newData[oldSelected][1], btn.Material.Value})
+    end
+  end
+)
+                end
+              end
+              do
+                if (objectType ~= "Floor" or not "Floor") and (objectType ~= "RectangularPath" or not "Path") then
+                  oldFrame.Title.Text = "Paint \'" .. tostring(object) .. "\'"
+                  oldFrame:TweenPosition(UDim2.new(0.5, oldFrame.AbsoluteSize.X * -0.5, 0.5, -59), "In", "Sine", transitionTime, true)
+                  oldFrame.ClipFrame.ColorFrame.MouseButton1Down:connect(function()
+    
+    local isDown = true
+    mouse.Button1Up:connect(function()
+      
+      isDown = nil
+    end
+)
+    oldFrame.ClipFrame.ColorFrame.MouseButton1Up:connect(function()
+      
+      isDown = nil
+    end
+)
+    repeat
+      local colorNum = math.max(math.min(math.floor(mouse.X - oldFrame.ClipFrame.ColorFrame.AbsolutePosition.X) / (oldFrame.ClipFrame.ColorFrame.AbsoluteSize.X - 12) * (colors - 1), colors - 1), 0)
+      local color = BrickColor.palette(colorNum)
+      if color ~= newData[oldSelected][1] and newFrame == oldFrame then
+        updateGroup(oldSelected, {color, newData[oldSelected][2]})
+      end
+      renderStepped:wait()
+    until not isDown
+  end
+)
+                  select(1)
+                  getPrice()
+                  do
+                    local update = nil
+                    update = clientStats.Updated:connect(function(stat)
+    
+    -- DECOMPILER ERROR at PC8: Unhandled construct in 'MakeBoolean' P1
+
+    if newFrame == oldFrame and stat.Name == "Money" then
+      getPrice()
+    end
+    update:disconnect()
+  end
+)
+                    for _,btn in pairs(oldFrame.ButtonFrame:GetChildren()) do
+                      if btn:IsA("ImageButton") then
+                        GUIHandler:HoverEffect(btn, 0.8)
+                        btn.MouseButton1Click:connect(function()
+    
+    if newFrame == oldFrame then
+      if btn.Name == "Exit" then
+        for i = 1, 4 do
+          updateGroup(i)
+        end
+        module:ShowPaint()
+      else
+        local bought = dataManager:InvokeServer({Type = "ColorObject", Object = object, Data = newData, Side = objectType == "Wall" and tostring(realTarget):sub(1, 1) or nil})
+        if bought then
+          if not object:IsA("Model") or not object:GetModelCFrame() then
+            module:MoneyLabel(bought, object.CFrame.p)
+            soundHandler:Play("Splat")
+            for i = 1, 4 do
+              changeGroup(i)
+            end
+            do
+              module:ShowPaint(bought and "KeepPaint" or nil)
+            end
+          end
+        end
+      end
+    end
+  end
+)
+                      end
+                    end
+                    do return function(target, realTarget)
+    
+    if newFrame == oldFrame then
+      local object, objectType = module:GetTarget(target)
+      if object then
+        for i = 1, 4 do
+          if (objectType ~= "Wall" or (i == 1 and tostring(realTarget):sub(1, 1)) or not 0) then
+            do
+              local colorData = {wallHandler:GetAppearanceData(object, not newData[i] or i)}
+              if #colorData == 2 then
+                for j = 1, 2 do
+                  if colorData[j] ~= 0 and newData[i][j] and newData[i][j] ~= 0 then
+                    newData[i][j] = colorData[j]
+                  end
+                end
+                updateGroup(i, newData[i])
+              end
+              -- DECOMPILER ERROR at PC71: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+              -- DECOMPILER ERROR at PC71: LeaveBlock: unexpected jumping out IF_STMT
+
+            end
+          end
+        end
+      end
+    end
+  end
+ end
+                    -- DECOMPILER ERROR at PC379: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                    -- DECOMPILER ERROR at PC379: LeaveBlock: unexpected jumping out IF_STMT
+
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+module.EquipTool = function(self, tool)
+	local function resetSelection()
+		if oldTarget and targetColors then
+			module:SetColor(targetColors)
+		end
+		if oldType == "Pool" and oldTarget and oldTarget:FindFirstChild("HitBox") then
+			oldTarget.HitBox.Transparency = 1
+		end
+	end
+
+	if oldTarget then
+		resetSelection()
+		oldTarget = nil
+	end
+
+	if curTool == "Paint" then
+		-- Clear paint state if needed
+		oldPaintTarget = nil
+	end
+
+	if tool and curTool ~= tool then
+		curTool = tool
+
+		if isPlacing then
+			module:StopPlacing()
+			changeList(false)
+			curPath = nil
+		end
+
+		local updatePaint = nil
+
+		mouseDesc.Label1.Text = "Move - Select"
+		mouseDesc.Visible = true
+
+		mouse.Button1Down:Connect(function()
+			if not oldTarget then return end
+			
+			
+
+			if tool == "Delete" then
+				if oldType ~= "Pole" and oldType ~= "Ground" then
+					local oldParent = oldTarget.Parent
+					oldTarget.Parent = tempFolder
+
+					local pos = oldTarget:IsA("Model") and oldTarget:GetModelCFrame() and oldTarget:GetModelCFrame().p or oldTarget.Position
+					local sold = dataManager:InvokeServer({Type = "SellObject", Object = oldTarget})
+
+					if sold then
+						soundHandler:Play("MoneyEarned")
+						module:MoneyLabel(sold, pos)
+					else
+						oldTarget.Parent = oldParent
+					end
+				end
+
+			elseif tool == "Paint" then
+				module:ShowPaint(oldTarget)
+				module:SetColor(targetColors)
+			end
+		end)
+
+
+		while true do
+			task.wait()
+
+			local mouseTarget = module:CastMouseRay()
+			local hitPart = mouseTarget and mouseTarget.Instance
+			local target, type = module:GetTarget(hitPart and hitPart.Parent or nil)
+
+			if target ~= oldTarget then
+				if oldTarget then
+					resetSelection()
+					oldTarget = nil
+				end
+
+				if target and type ~= "Pole" and type ~= "SpawnedVehicle" then
+					oldTarget = target
+					oldType = type
+					targetColors = module:GetColorList(oldTarget)
+
+					if tool == "Paint" then
+						if oldType ~= "Pool" and oldType ~= "Ground" and wallHandler:GetAppearanceData(oldTarget, 1) then
+							module:SetColor(targetColors, BrickColor.new("Bright blue"), true)
+						else
+							oldTarget = nil
+						end
+					else
+						if oldType == "Ground" then
+							oldTarget = nil
+						else
+							module:SetColor(targetColors, BrickColor.new("Bright red"))
+							if oldType == "Pool" and oldTarget:FindFirstChild("HitBox") then
+								oldTarget.HitBox.Transparency = 0.5
+							end
+						end
+					end
+				end
+			end
+
+			mouseDesc.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+			mouseDesc.Label2.Visible = oldTarget ~= nil
+			if tool == "Paint" then
+				if oldTarget and oldTarget:FindFirstChild("ToInventory") then
+					mouseDesc.Label2.Text = "Click - Put in Inventory"
+				else
+					mouseDesc.Label2.Text = "Click - Copy colors"
+				end
+			else
+				mouseDesc.Label2.Text = "Click - Sell"
+			end
+		end
+
+	else
+		mouseDesc.Visible = false
+		curTool = nil
+	end
+end
+
+
+
+local oldWall = nil
+module.StartPlacing = function(self, item, isMoving)
+  
+  local plot = plotHandler:GetPlot()
+  if not plot then
+    warn("StartPlacing: No plot found")
+    return 
+  end
+  spawn(changeList, false)
+  module:EquipTool()
+  if not isMoving or not "Moving \'" then
+    main.PlaceBox.Title.Text = (isMoving == "Inventory" and "Placing \'" .. tostring(item.Name) .. "\' from Inventory" or "Placing \'") .. tostring(item.Name) .. "\'"
+    main.PlaceBox.Visible = true
+    main.PlaceBox.Cancel.TextLabel.Text = "Cancel"
+    local showToggle = (item.Name == "Floor" or item.Type == "Roof") and "Automatic placement:" or false
+    main.PlaceBox.Toggle.Visible = showToggle
+    main.PlaceBox.Size = UDim2.new(0, 230, 0, showToggle and 95 or 65)
+    main.PlaceBox:TweenPosition(UDim2.new(1, 4, 1, -(showToggle and 65 or 35)), "In", "Sine", transitionTime, true)
+    main.PlaceBox.Toggle.Title.Text = showToggle or ""
+    main.PlaceBox.Size = UDim2.new(0, math.max(200, main.PlaceBox.Title.TextBounds.X + main.PlaceBox.Title.Position.X.Offset * 2), 0, main.PlaceBox.Size.Y.Offset)
+    toggleState = showToggle
+    main.PlaceBox.Toggle.Text = toggleState and "X" or ""
+    mouseDesc.Money.Visible = true
+    mouseDesc.Visible = true
+    if item.Name == "Floor" then
+      mouseDesc.Label2.Text = "Right Click - Buy"
+      local obj = Instance.new("Model", workspace:WaitForChild("MouseIgnore"))
+      do
+        local triModel = Instance.new("Model", obj)
+        local mousePoint = Instance.new("Part", obj)
+        mousePoint.Anchored = true
+        mousePoint.Shape = "Ball"
+        mousePoint.Size = Vector3.new(1.6, 1.6, 1.6)
+        mousePoint.Transparency = 0.3
+        mousePoint.TopSurface = "Smooth"
+        isPlacing = obj
+        local points = {}
+        local clearPoints = function()
+    
+    points = {}
+    for _,obj in pairs(obj:GetChildren()) do
+      if obj:IsA("BasePart") and obj.Name == "Point" then
+        obj:Destroy()
+      end
+    end
+  end
+
+        local canPlace = true
+        local canTriangulateVal = nil
+        local canPlacePoint = true
+        local mouseL, mouseR, targetPos, lastTarget, selectedPoint = nil, nil, nil, nil, nil
+        local money = 0
+        local floorOffset = 0.05
+        local floorChanged = nil
+        local getBall = function(pos)
+    
+    for _,obj in pairs(obj:GetChildren()) do
+      if obj:IsA("BasePart") and obj.Name == "Point" and pos - obj.Position.magnitude < 2 then
+        return obj
+      end
+    end
+  end
+
+        local getPoint = function(pos)
+    
+    for _,point in pairs(points) do
+      if pos - point.magnitude < 2 then
+        return point
+      end
+    end
+  end
+
+        local canTriangulate = function(point)
+    
+    local newData = {}
+    for i,data in pairs(points) do
+      newData[i] = data
+    end
+    newData[#newData + 1] = point
+    return triangulate:GetTriangles(newData)
+  end
+
+				local updateTriangles = function(showError)
+					-- Destroy existing triangles in triModel
+					for _, obj in pairs(triModel:GetChildren()) do
+						obj:Destroy()
+					end
+
+					lastTarget = nil
+
+					-- Create lines between each point
+					for i, point in pairs(points) do
+						local nextIndex = (i % #points) + 1  -- Get the next point (loops back to 1 if at the end)
+						local nextPoint = points[nextIndex]
+
+						local part = Instance.new("Part", triModel)
+						part.Anchored = true
+						part.TopSurface = Enum.SurfaceType.Smooth
+
+						local distance = (point - nextPoint).Magnitude  -- Correct the distance calculation
+						part.Size = Vector3.new(0.3, 0.3, distance)
+						part.CFrame = CFrame.new(point, nextPoint) * CFrame.new(0, 0, -distance / 2)
+					end
+
+					-- Try triangulating the points
+					local triData = #points >= 3 and triangulate:GetTriangles(points) or nil
+					canTriangulateVal = not not triData  -- Convert to boolean (true/false)
+
+					if triData then
+						-- If triangulation is successful, create triangles
+						local triangles = triangulate:CreateTriangles(triData, function(part, parent)
+							part.Parent = parent
+							part.Transparency = 0.5
+							local pos = part.CFrame
+							part.Size = Vector3.new(0.25, part.Size.Y, part.Size.Z)
+							part.CFrame = pos
+						end, triModel)
+
+						-- Calculate the money based on the triangulated area
+						money = math.ceil(triangulate:GetArea(triData) * item.Price)
+					else
+						-- Show an error if triangulation fails
+						if showError then
+							module:ErrorLabel("Unable to find room", mouse.Hit.p + Vector3.new(0, 1, 0))
+						end
+						return false  -- Early exit if triangulation fails
+					end
+				end
+
+
+        floorChanged = buildSettings.FloorChanged:connect(function()
+    
+    clearPoints()
+    updateTriangles()
+  end
+)
+        mouseR = mouse.Button1Down:connect(function()
+    
+    if toggleState then
+      clearPoints()
+      if not wallHandler:GetRoom(plot, targetPos + Vector3.new(0, 6, 0)) then
+        points = {}
+        for _,point in pairs(points) do
+          points = point - Vector3.new(0, floorOffset, 0)
+        end
+        updateTriangles(true)
+        if selectedPoint then
+          local ball = getBall(points[selectedPoint])
+          if ball then
+            ball:Destroy()
+          end
+          table.remove(points, selectedPoint)
+          updateTriangles()
+          selectedPoint = nil
+        else
+          do
+            if canPlacePoint == true then
+              table.insert(points, targetPos)
+              local point = Instance.new("Part", obj)
+              point.Anchored = true
+              point.Shape = "Ball"
+              point.Size = Vector3.new(1.5, 1.5, 1.5)
+              point.CFrame = CFrame.new(targetPos)
+              point.Name = "Point"
+              point.Transparency = 0.5
+              point.TopSurface = "Smooth"
+              updateTriangles()
+            else
+              do
+                module:ErrorLabel("Unable to place point", mouse.Hit.p + Vector3.new(0, 1, 0))
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+)
+        mouseL = mouse.Button2Down:connect(function()
+    
+    local lastPos = Vector3.new(mouse.X, mouse.Y)
+    mouse.Button2Up:wait()
+    if lastPos - Vector3.new(mouse.X, mouse.Y).magnitude < rightClickDeadzone then
+      if canPlace == true then
+        local oldPoints = points
+        clearPoints()
+        local tempModel = obj:clone()
+        tempModel.Name = "TempFloor"
+        tempModel.Parent = workspace:WaitForChild("MouseIgnore")
+        updateTriangles()
+        local placed, price = dataManager:InvokeServer({Type = "PlaceFloor", Points = oldPoints})
+        tempModel:Destroy()
+        if placed and tonumber(price) then
+          module:MoneyLabel(-price, placed:GetModelCFrame().p)
+          soundHandler:Play("Place")
+        end
+      else
+        do
+          module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, 1, 0))
+        end
+      end
+    end
+  end
+)
+        repeat
+          if #points >= 3 then
+            canPlace = "Too small"
+            canPlace = canPlace
+            local mouseTarget = mouse.Target
+            local target, targetType = module:GetTarget(mouseTarget and mouseTarget.Parent or nil)
+						local pos = mouse.Hit.p
+            local curFloorOffset = 12 * (buildSettings:GetFloor() - 1)
+            targetPos = module:ConvertPos(pos, nil, toggleState and 2.5 or 0).p
+            targetPos = Vector3.new(targetPos.x, plot.Ground.Position.Y + plot.Ground.Size.Y / 2 - floorOffset + curFloorOffset, targetPos.z)
+            canPlacePoint = math.abs(targetPos.Y - (plot.Ground.Position.Y + plot.Ground.Size.Y / 2 + curFloorOffset)) < acceptedDiff
+						local selectedPos = selectedPoint and selectedPoint.Position or nil
+            selectedPoint = getPoint(targetPos)
+            mousePoint.CFrame = CFrame.new(selectedPos or targetPos)
+            mousePoint.BrickColor = BrickColor.new((not canPlacePoint or selectedPoint) and "Bright red" or "Medium stone grey")
+            if not canTriangulateVal then
+              canPlace = "Can\'t build floor"
+            end
+            mouseDesc:WaitForChild("Money").TextColor3 = Color3.new(0, 0.66666666666667, 0)
+            if clientStats:Get("Money") < money then
+              mouseDesc.Money.TextColor3 = Color3.new(1, 0, 0)
+              canPlace = "Not enough money"
+            end
+            mouseDesc.Money.Text = "$ " .. textHandler:SeparateNumber(money)
+            mouseDesc.Money.TextLabel.Text = mouseDesc.Money.Text
+            -- DECOMPILER ERROR at PC444: Unhandled construct in 'MakeBoolean' P3
+
+						if toggleState then
+							mouseDesc.Label1.Text = "Generate floor"
+						elseif selectedPoint then
+							mouseDesc.Label1.Text = "Left Click - " .. (canPlacePoint and "Place point" or "Can't place")
+						else
+							mouseDesc.Label1.Text = ""
+						end
+
+            mouseDesc.Label2.Visible = canPlace
+            mouseDesc.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+            renderStepped:wait()
+            lastTarget = targetPos
+          end
+        until isPlacing ~= obj
+        obj:Destroy()
+        mouseR:disconnect()
+        mouseL:disconnect()
+        floorChanged:disconnect()
+      end
+    elseif item.Type == "Roof" then
+      mouseDesc.Label2.Text = "Right Click - Buy"
+      local obj = Instance.new("Model", workspace:WaitForChild("MouseIgnore"))
+      obj.Name = "RoofPreview"
+      local mousePoint = Instance.new("Part", obj)
+      mousePoint.Anchored = true
+      mousePoint.Shape = "Ball"
+      mousePoint.Size = Vector3.new(1.6, 1.6, 1.6)
+      mousePoint.Transparency = 0.3
+      mousePoint.TopSurface = "Smooth"
+      isPlacing = obj
+      local points = {}
+      local clearPoints = function()
+    
+    points = {}
+    for _,obj in pairs(obj:GetChildren()) do
+      if obj:IsA("BasePart") and obj.Name == "Point" then
+        obj:Destroy()
+      end
+    end
+  end
+
+      local canPlace = true
+      local roofData = {}
+      local roofPos, mouseL, mouseR, floorChanged = nil, nil, nil, nil
+      floorChanged = buildSettings.FloorChanged:connect(function()
+    
+    clearPoints()
+    if roofData.Model then
+      roofData.Model:Destroy()
+    end
+  end
+)
+      local canPlacePoint = true
+      local selectedPoint = nil
+      local getBall = function(pos)
+    
+    for _,obj in pairs(obj:GetChildren()) do
+					if obj:IsA("BasePart") and obj.Name == "Point" and (pos - obj.Position).Magnitude < 2 then
+
+        return obj
+      end
+    end
+  end
+
+      local getPoint = function(pos)
+    
+    for _,point in pairs(points) do
+					if (pos - point).Magnitude < 2 then
+
+        return point
+      end
+    end
+  end
+
+      local roofSettings = {Type = item.Name, IsPreview = true}
+      mouseR = mouse.Button1Down:connect(function()
+    
+    if roofData.Model then
+      roofData.Model:Destroy()
+    end
+	if toggleState then
+	 local targetPos = nil
+      clearPoints()
+      roofData = roofHandler:GenerateRoof(plot, targetPos - Vector3.new(0, 6, 0), roofSettings)
+    else
+      if selectedPoint then
+        local ball = getBall(points[selectedPoint])
+        if ball then
+          ball:Destroy()
+        end
+        table.remove(points, selectedPoint)
+		selectedPoint = nil
+      else
+		do
+							local targetPos = nil
+          if canPlacePoint == true then
+            table.insert(points, targetPos)
+            local point = Instance.new("Part", obj)
+            point.Anchored = true
+            point.Shape = "Ball"
+            point.Size = Vector3.new(1.5, 1.5, 1.5)
+            point.CFrame = CFrame.new(targetPos)
+            point.Name = "Point"
+            point.Transparency = 0.5
+            point.TopSurface = "Smooth"
+          else
+            do
+              module:ErrorLabel("Unable to place point", mouse.Hit.p + Vector3.new(0, 1, 0))
+              roofData = roofHandler:CreateRoof(plot, points, 1, roofSettings)
+              if roofData.Succeded ~= true and toggleState then
+                module:ErrorLabel(roofData.Succeded, mouse.Hit.p + Vector3.new(0, 1, 0))
+              else
+                if roofData.Model then
+                  roofPos = targetPos
+                  roofData.Model.Parent = obj
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+) -- end here 
+      mouseL = mouse.Button2Down:connect(function()
+    
+    local lastPos = Vector3.new(mouse.X, mouse.Y)
+    mouse.Button2Up:wait()
+    if lastPos - Vector3.new(mouse.X, mouse.Y).magnitude < rightClickDeadzone then
+      if canPlace == true then
+        roofData.Succeded = false
+        local oldPoints = points
+        clearPoints()
+        local tempModel = nil
+        if roofData.Model then
+          tempModel = roofData.Model:clone()
+          tempModel.Name = "TempRoof"
+          tempModel.Parent = workspace:WaitForChild("MouseIgnore")
+          roofData.Model:Destroy()
+        end
+        local placed, price = dataManager:InvokeServer({Type = "PlaceRoof", Points = roofData.Points, Start = roofPos, Side = roofData.Side, Settings = roofSettings})
+        if tempModel then
+          tempModel:Destroy()
+        end
+        if placed and tonumber(price) then
+          module:MoneyLabel(-price, placed:GetModelCFrame().p)
+          soundHandler:Play("Place")
+        end
+      else
+        do
+          module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, 1, 0))
+        end
+      end
+    end
+  end
+)
+      repeat
+        canPlace = roofData.Succeded
+        local mouseTarget = mouse.Target
+        local target, targetType = module:GetTarget(mouseTarget and mouseTarget.Parent or nil)
+        local pos = mouse.Hit.p
+        local floorOffset = 12 * buildSettings:GetFloor()
+        local targetPos = module:ConvertPos(pos, nil, toggleState and 2.5 or nil).p
+				targetPos = Vector3.new(targetPos.x, plot.Ground.Position.Y + plot.Ground.Size.Y / 2 + floorOffset, targetPos.z)
+		local selectedPos = selectedPoint and selectedPoint.Position or nil
+        selectedPoint = getPoint(targetPos)
+        canPlacePoint = math.abs(targetPos.Y - (plot.Ground.Position.Y + plot.Ground.Size.Y / 2 + floorOffset)) < acceptedDiff
+        mousePoint.CFrame = CFrame.new(selectedPos or targetPos)
+        mousePoint.BrickColor = BrickColor.new((not canPlacePoint or selectedPoint) and "Bright red" or "Medium stone grey")
+        -- DECOMPILER ERROR at PC674: Overwrote pending register: R30 in 'AssignReg'
+
+				mouseDesc.Money.TextColor3 = Color3.new(0, 0.666, 0)
+        if clientStats:Get("Money") < roofData.Price or 0 then
+          mouseDesc.Money.TextColor3 = Color3.new(1, 0, 0)
+          canPlace = "Not enough money"
+        end
+        mouseDesc.Money.Text = "$ " .. textHandler:SeparateNumber(roofData.Price or 0)
+        mouseDesc.Money.TextLabel.Text = mouseDesc.Money.Text
+        -- DECOMPILER ERROR at PC736: Unhandled construct in 'MakeBoolean' P3
+
+				if toggleState then
+					mouseDesc.Label1.Text = "Generate roof"
+				elseif selectedPoint then
+					mouseDesc.Label1.Text = "Left Click - " .. (canPlacePoint and "Place point" or "Invalid point")
+				else
+					mouseDesc.Label1.Text = ""
+				end
+
+        mouseDesc.Label2.Visible = canPlace == true
+        mouseDesc.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+        renderStepped:wait()
+      until isPlacing ~= obj
+      obj:Destroy()
+      mouseR:disconnect()
+      mouseL:disconnect()
+      floorChanged:disconnect()
+    elseif item.Name == "Pool" then
+      local obj = Instance.new("Part", workspace:WaitForChild("MouseIgnore"))
+      obj.CanCollide = true
+      obj.Anchored = true
+      obj.TopSurface = "Smooth"
+      obj.Material = "Plastic"
+      obj.Transparency = 0.5
+      isPlacing = obj
+      local ground = plot.PrimaryPart
+      local startPos, targetPos = nil, nil
+      local canPlace = true
+      local mouseDown, mouseUp = nil, nil
+      mouseUp = mouse.Button1Up:connect(function()
+    
+    if canPlace == true and startPos then
+      local center = startPos:lerp(targetPos, 0.5)
+      local size = Vector2.new(math.abs(startPos.x - targetPos.x), math.abs(startPos.z - targetPos.z))
+      local tempModel = obj:clone()
+      tempModel.Name = "TempPool"
+      tempModel.Parent = workspace:WaitForChild("MouseIgnore")
+      startPos = nil
+      local placed, price = dataManager:InvokeServer({Type = "PlacePool", Center = center, Size = size})
+      tempModel:Destroy()
+      if placed then
+        placed.HitBox.CanCollide = true
+        if tonumber(price) then
+          module:MoneyLabel(-price, placed.HitBox.CFrame.p)
+          soundHandler:Play("Place")
+        end
+      end
+    else
+      do
+        if canPlace ~= true then
+          module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, 1, 0))
+        end
+        startPos = nil
+      end
+    end
+  end
+)
+      mouseDown = mouse.Button1Down:connect(function()
+    
+    startPos = targetPos
+  end
+)
+      mouseDesc.Label1.Text = "Drag - Preview"
+      mouseDesc.Label2.Text = "Release - Buy"
+      repeat
+        canPlace = true
+        local mouseTarget = mouse.Target
+        local target, targetType = module:GetTarget(mouseTarget and mouseTarget.Parent or nil)
+        targetPos = ground.CFrame:inverse() * module:ConvertPos(mouse.Hit.p, nil, nil, 1)
+        targetPos = CFrame.new(targetPos.x, ground.Size.Y / 2, targetPos.z)
+        local distance = 0
+        if startPos then
+          local center = startPos:lerp(targetPos, 0.5)
+          obj.Size = Vector3.new(math.abs(startPos.x - targetPos.x) - 1, 1, math.abs(startPos.z - targetPos.z) - 1)
+          obj.Position = ground.CFrame * center.p
+          if acceptedDiff < math.abs(obj.Position.Y - (ground.Position.Y + (ground.Size.Y + obj.Size.Y) / 2)) then
+            canPlace = "Not enough space"
+          end
+          obj.Size = Vector3.new(math.abs(startPos.x - targetPos.x), 1, math.abs(startPos.z - targetPos.z))
+          obj.CFrame = ground.CFrame * center
+        else
+          obj.Size = Vector3.new(1, 1, 1)
+          obj.CFrame = ground.CFrame * targetPos
+          canPlace = "Too small"
+        end
+        local money = math.floor((obj.Size.X + 1) / gridSize) * math.floor((obj.Size.Z + 1) / gridSize) * item.Price
+        mouseDesc:WaitForChild("Money").TextColor3 = Color3.new(0, 0.66666666666667, 0)
+        if clientStats:Get("Money") < money then
+          mouseDesc.Money.TextColor3 = Color3.new(1, 0, 0)
+          canPlace = "Not enough money"
+        elseif money < 1 then
+          canPlace = "Too small"
+        end
+        local color = BrickColor.new((canPlace == true or not startPos) and "Bright green" or "Bright red")
+        obj.BrickColor = color
+        mouseDesc.Money.Text = "$ " .. textHandler:SeparateNumber(money == 0 and item.Price or money)
+        mouseDesc.Money.TextLabel.Text = mouseDesc.Money.Text
+        mouseDesc.Label2.Visible = canPlace
+        mouseDesc.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+        renderStepped:wait()
+      until isPlacing ~= obj
+      obj:Destroy()
+      mouseUp:disconnect()
+      mouseDown:disconnect()
+    elseif item.Name == "Wall" or item.Name == "Path" then
+	  local obj = storage.WallGroup:clone()
+      obj.Parent = workspace:WaitForChild("MouseIgnore")
+      local wallHeight = obj.MPart.Size.Y
+      local width = obj.MPart.Size.X
+      for _,wall in pairs(obj:GetChildren()) do
+        wall.CanCollide = true
+      end
+      isPlacing = obj
+      local startPos, targetPos = nil, nil
+      local canPlace = true
+      local mouseDown, mouseUp, floorChanged = nil, nil, nil
+      floorChanged = buildSettings.FloorChanged:connect(function()
+    
+    startPos = nil
+  end
+)
+      mouseUp = mouse.Button1Up:connect(function()
+    
+    local oldStartPos = startPos
+    startPos = nil
+    if canPlace == true and oldStartPos then
+      local fakeWall = obj:clone()
+	  fakeWall.Parent = workspace:WaitForChild("MouseIgnore")
+	  
+					local placed, poleR, poleL, price = dataManager:InvokeServer({
+						Type = item.Name == "Wall" and "PlaceWall" or "PlacePath",
+						From = oldStartPos,
+						To = targetPos.p
+					})
+
+					if placed and tonumber(price) then
+						module:MoneyLabel(-price, placed.CFrame.p)
+						soundHandler:Play("Place")
+					else
+						--print("Placement failed. placed:", placed, "price:", price)
+
+						-- Show money label anyway if we have a price
+						if tonumber(price) then
+							module:MoneyLabel(-price, targetPos.p) -- Use targetPos.p as fallback location
+						end
+					end
+
+      fakeWall:Destroy()
+    else
+      do
+        if canPlace ~= true then
+          module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, wallHeight / 2, 0))
+        end
+      end
+    end
+  end
+)
+      mouseDown = mouse.Button1Down:connect(function()
+    
+    if canPlace ~= "Not enough space" then
+      startPos = targetPos.p
+    else
+      module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, wallHeight / 2, 0))
+    end
+  end
+)
+      mouseDesc.Label1.Text = "Drag - Preview"
+      mouseDesc.Label2.Text = "Release - Buy"
+      repeat
+        canPlace = true
+        local mouseTarget = mouse.Target
+        local target, targetType = module:GetTarget(mouseTarget and mouseTarget.Parent or nil)
+        if (not target or (targetType ~= "Pole" or not mouseTarget.Position - Vector3.new(0, mouseTarget.Size.Y / 2, 0)) and (targetType ~= "Floor" or not mouse.Hit.p - Vector3.new(0, mouseTarget.Size.X / 2, 0))) then
+          local pos = mouse.Hit.p
+		end
+				local pos = mouse.Hit.p
+        targetPos = module:ConvertPos(pos + Vector3.new(0, wallHeight / 2, 0), gridSize * (item.Name == "Path" and 0.5 or 1))
+        if item.Name ~= "Path" or not 0 then
+          local floorOffset = 12 * (buildSettings:GetFloor() - 1)
+		end
+				local floorOffset = 12 * (buildSettings:GetFloor() - 1)
+        targetPos = CFrame.new(targetPos.X, plot.Ground.Position.Y + plot.Ground.Size.Y / 2 + wallHeight / 2 + floorOffset, targetPos.Z)
+        local distance = 0
+        if not startPos then
+          obj.MPart.Size = Vector3.new(width, wallHeight, width)
+          obj.RPart.CFrame = targetPos
+          obj.RPart.Transparency = 0.5
+          obj.MPart.Transparency = 1
+          obj.LPart.Transparency = 1
+          obj.MPart.CFrame = targetPos
+          obj.LPart.CFrame = targetPos
+          if item.Name == "Wall" then
+            local collWall = wallHandler:IsAtWall(plot, targetPos.p, true)
+            if collWall and wallHandler:GetWallObjects(collWall, targetPos.p, true)[1] then
+              canPlace = "Not enough space"
+            end
+          end
+        else
+					--print(typeof(startPos), typeof(targetPos))
+
+					local distance = (startPos - targetPos.Position).Magnitude
+
+
+
+
+
+          obj.RPart.CFrame = targetPos
+          if distance >= 2 then
+            obj.RPart.Transparency = 0.5
+            obj.MPart.Transparency = 0.5
+            obj.LPart.Transparency = 0.5
+						local targetCF = CFrame.new(startPos, targetPos.Position) * CFrame.new(0, 0, -distance / 2)
+
+            if item.Name == "Wall" then
+              obj.MPart.CFrame = targetCF * CFrame.new(0, -0.5, 0)
+              obj.MPart.Size = Vector3.new(0.2, wallHeight - 2, distance - 2)
+							obj.MPart.Position = (targetCF * CFrame.new(0, 0.0001, 0)).Position
+              if acceptedDiff < math.abs(obj.MPart.Position.Y - (plot.Ground.Position.Y + plot.Ground.Size.Y / 2 + wallHeight / 2 + floorOffset)) then
+                canPlace = "Not enough space"
+              end
+            end
+            obj.MPart.Size = Vector3.new(width, wallHeight, distance)
+            obj.MPart.CFrame = targetCF
+            obj.LPart.CFrame = CFrame.new(startPos)
+            if wallHandler:Intersects(plot, startPos, targetPos.p) then
+              canPlace = "Not enough space"
+            else
+              local collWall = wallHandler:IsAtWall(plot, targetPos.p)
+              if collWall and wallHandler:GetWallObjects(collWall, targetPos.p, true)[1] then
+                canPlace = "Not enough space"
+              end
+            end
+          else
+            obj.RPart.Transparency = 0.5
+            obj.MPart.Transparency = 1
+            obj.LPart.Transparency = 1
+            obj.MPart.CFrame = targetPos
+            obj.LPart.CFrame = targetPos
+          end
+        end
+				local money = math.ceil(distance / gridSize * 2)
+				local hasEnoughMoney = clientStats:Get("Money")
+
+				mouseDesc:WaitForChild("Money").TextColor3 = Color3.new(0, 0.66666666666667, 0)
+
+				if canPlace == true then
+					if hasEnoughMoney < money then
+						mouseDesc.Money.TextColor3 = Color3.new(1, 0, 0)
+						canPlace = false
+						warn("Not enough money to place. Needed:", money, "Available:", hasEnoughMoney)
+					elseif hasEnoughMoney < 1 then
+						mouseDesc.Money.TextColor3 = Color3.new(1, 0, 0)
+						canPlace = false
+						warn("You have less than 1 money.")
+					end
+				end
+
+        local color = BrickColor.new((canPlace == true or not startPos) and "Medium stone grey" or "Bright red")
+        obj.RPart.BrickColor = color
+        obj.MPart.BrickColor = color
+        obj.LPart.BrickColor = color
+        mouseDesc.Money.Text = "$ " .. textHandler:SeparateNumber(money == 0 and item.Price or money)
+        mouseDesc.Money.TextLabel.Text = mouseDesc.Money.Text
+        mouseDesc.Label2.Visible = canPlace == true
+        mouseDesc.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+        renderStepped:wait()
+      until isPlacing ~= obj
+      obj:Destroy()
+      mouseUp:disconnect()
+      mouseDown:disconnect()
+      floorChanged:disconnect()
+    elseif item.Type == "Fences" then
+      local _, fenceData = fenceHandler:CreateFence(plot, item.Name)
+      local obj = fenceData:GetModel()
+      obj.Parent = workspace:WaitForChild("MouseIgnore")
+      local wallHeight = obj.EndPole.PrimaryPart.Size.Y
+      isPlacing = obj
+      local startPos, targetPos = nil, nil
+      local canPlace = true
+      local mouseDown, mouseUp, floorChanged = nil, nil, nil
+      mouseUp = mouse.Button1Up:connect(function()
+    
+    local oldStartPos = startPos
+    startPos = nil
+    local lastPos = nil
+    if canPlace == true and oldStartPos then
+      local fakeFence = obj:clone()
+      fakeFence.Parent = workspace:WaitForChild("MouseIgnore")
+      local placed, price = dataManager:InvokeServer({Type = "PlaceFence", From = oldStartPos, To = targetPos.p, ItemType = item.Name})
+      if placed and tonumber(price) then
+        module:MoneyLabel(-price, placed:GetModelCFrame().p)
+        soundHandler:Play("Place")
+      end
+      fakeFence:Destroy()
+    else
+      do
+        if canPlace ~= true then
+          module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, wallHeight / 2, 0))
+        end
+      end
+    end
+  end
+)
+      mouseDown = mouse.Button1Down:connect(function()
+    
+    if canPlace ~= "Not enough space" then
+      startPos = targetPos.p
+    else
+      module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, wallHeight / 2, 0))
+    end
+  end
+)
+      floorChanged = buildSettings.FloorChanged:connect(function()
+    
+    startPos = nil
+    local lastPos = nil
+  end
+)
+      mouseDesc.Label1.Text = "Drag - Preview"
+      mouseDesc.Label2.Text = "Release - Buy"
+      local newCanPlace, lastPos = nil, nil
+      local renderUpdate = true
+      repeat
+        canPlace = true
+        local mouseTarget = mouse.Target
+        local target, targetType = module:GetTarget(mouseTarget and mouseTarget.Parent or nil)
+        targetPos = module:ConvertPos(mouse.Hit.p)
+        targetPos = CFrame.new(targetPos.X, plot.Ground.Position.Y + plot.Ground.Size.Y / 2 + (buildSettings:GetFloor() - 1) * 12, targetPos.Z)
+        if lastPos ~= targetPos.p and renderUpdate then
+          newCanPlace = fenceData:Update(targetPos.p, startPos)
+          lastPos = targetPos.p
+        end
+        local colorData = module:GetColorList(obj)
+        if canPlace ~= true or not newCanPlace then
+          local money = item.Price * math.ceil((fenceData:GetLength() - 1) / 5)
+          mouseDesc:WaitForChild("Money").TextColor3 = Color3.new(0, 0.66666666666667, 0)
+          if canPlace == true then
+            if clientStats:Get("Money") < money then
+              mouseDesc.Money.TextColor3 = Color3.new(1, 0, 0)
+              canPlace = "Not enough money"
+            elseif money < 1 then
+              canPlace = "Too short"
+            end
+          end
+          if canPlace ~= true and startPos then
+            module:SetColor(colorData, BrickColor.new("Bright red"))
+          end
+          mouseDesc.Money.Text = "$ " .. textHandler:SeparateNumber(money)
+          mouseDesc.Money.TextLabel.Text = mouseDesc.Money.Text
+          mouseDesc.Label2.Visible = canPlace == true
+          mouseDesc.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+          renderUpdate = not renderUpdate
+          renderStepped:wait()
+          if canPlace ~= true then
+            module:SetColor(colorData)
+          end
+        end
+      until isPlacing ~= obj
+      obj:Destroy()
+      mouseUp:disconnect()
+      mouseDown:disconnect()
+    elseif (item.Type == "Windows" or item.Type == "Doors") and item.Object then
+      if isMoving == "Inventory" or not isMoving then
+        local obj = item.Object:clone()
+	  end
+			local obj = item.Object:clone()
+      local originalPosition = isMoving and isMoving ~= "Inventory" and obj.PrimaryPart and obj.PrimaryPart.CFrame or nil
+      local originalParent = originalPosition and obj.Parent or nil
+      obj.Parent = workspace:WaitForChild("MouseIgnore")
+      local size = Vector2.new(obj.PrimaryPart.Size.X, obj.PrimaryPart.Size.Y)
+      isPlacing = obj
+      local colorData = (module:GetColorList(obj))
+      local isPlacingServer = nil
+      local canPlace = false
+      local curPos, curTarget, oldHole, starterHole, oldWalls, curSide = nil, nil, nil, nil, nil, nil
+      local curTick = tick()
+      local updateNum = 0
+      local doUpdate = true
+      if isMoving then
+        oldHole = obj.PrimaryPart:clone()
+        oldHole.Parent = curTarget
+      end
+      mouseDesc.Label1.Text = "Move - Preview"
+      mouseDesc.Label2.Text = "Click - " .. (isMoving and "Place" or "Buy")
+      local update = function()
+    
+    if isPlacing ~= obj or isPlacingServer then
+      return false
+    end
+    canPlace = "Can\'t place here"
+    local mousePos = module:GetMousePos()
+    if oldHole then
+      wallHandler:FillHole(oldHole.Parent, oldHole, oldWalls)
+      oldHole:Destroy()
+      oldWalls = nil
+      oldHole = nil
+    end
+    local mouseTarget = mouse.Target
+    local target, targetType = module:GetTarget(mouseTarget and mouseTarget.Parent or nil)
+    if target and targetType == "Wall" and obj.PrimaryPart then
+      local wallParts = wallHandler:GetWallParts(target, mousePos.p)
+      if type(wallParts) == "table" and #wallParts == 2 then
+        local wallPart = wallParts[1]
+        local center = wallPart.CFrame * CFrame.new(wallPart.CFrame:inverse() * target.SizeBox.CFrame.x, 0, 0)
+        local localPos = center:inverse() * mousePos
+        local placementGrid = buildSettings:GetPlacementGrid()[2]
+        local relativePos = target.SizeBox.CFrame:inverse() * mousePos
+        local placementGridSize = 5 / placementGrid
+        relativePos = CFrame.new(relativePos.X, math.floor(relativePos.Y * placementGridSize) / placementGridSize, math.floor(relativePos.Z * placementGridSize) / placementGridSize)
+        localPos = center:toObjectSpace(target.SizeBox.CFrame:toWorldSpace(relativePos))
+        if item.Type == "Doors" then
+          localPos = CFrame.new(localPos.X, (-wallPart.Size.Y + size.Y) / 2, localPos.Z)
+        end
+        if ((item.Type == "Doors" and localPos.Y == -(wallPart.Size.Y - size.Y) / 2) or -(wallPart.Size.Y - (size.Y + 0.5)) / 2 <= localPos.Y) and localPos.Z <= (wallPart.Size.Z - (size.X + 0.5)) / 2 and -(wallPart.Size.Z - (size.X + 0.5)) / 2 <= localPos.Z then
+          curTarget = wallPart.Parent
+          curSide = localPos.x < 0
+          obj:SetPrimaryPartCFrame(center * CFrame.new(0, localPos.Y, localPos.Z) * CFrame.Angles(0, math.pi / 2 * (curSide and -1 or 1), 0))
+          curPos = obj.PrimaryPart.Position
+          canPlace = true
+          module:SetColor(colorData)
+          for _,obj in pairs(obj:GetChildren()) do
+            if obj.Name:sub(1, 8) == "WallPart" then
+              if ((wallParts[1].Name ~= "RPart" or not wallParts[1]) and math.ceil(wallHandler:GetSide(obj.Position, center * CFrame.new(0, 0, 5), center * CFrame.new(0, 0, -5))) ~= math.ceil(wallHandler:GetSide(wallParts[2].Position, center * CFrame.new(0, 0, 5), center * CFrame.new(0, 0, -5)))) or not wallParts[1] then
+                local part = wallParts[2]
+			  end
+									local part = wallParts[2]
+              obj.Transparency = 0
+              local matValue = part:findFirstChild("Material")
+              if not matValue or not matValue.Value then
+                do
+                  wallHandler:ColorPart(obj, part.BrickColor, tostring(part.Material):sub(15))
+                  -- DECOMPILER ERROR at PC327: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                  -- DECOMPILER ERROR at PC327: LeaveBlock: unexpected jumping out IF_STMT
+
+                  -- DECOMPILER ERROR at PC327: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                  -- DECOMPILER ERROR at PC327: LeaveBlock: unexpected jumping out IF_STMT
+
+                end
+              end
+            end
+          end
+          oldHole = obj.PrimaryPart:clone()
+          oldHole.Parent = curTarget
+          oldWalls = wallParts
+          wallHandler:CutHole(wallParts, oldHole.Position, oldHole.Size)
+        else
+          canPlace = "Not enough space"
+          obj:SetPrimaryPartCFrame(center * CFrame.new(0, localPos.Y, localPos.Z) * CFrame.Angles(0, math.pi / 2 * (curSide and -1 or 1), 0))
+        end
+      else
+        canPlace = "Not enough space"
+        obj:SetPrimaryPartCFrame(CFrame.new(mousePos.p) * CFrame.Angles(0, math.pi / 2 * (curSide and -1 or 1), 0))
+      end
+    else
+      canPlace = "Must be placed on wall"
+      obj:SetPrimaryPartCFrame(CFrame.new(mousePos.p) * CFrame.Angles(0, math.pi / 2 * (curSide and -1 or 1), 0))
+    end
+    local money = item.Price
+    mouseDesc.Money.TextColor3 = Color3.new(0, 0.66666666666667, 0)
+    if clientStats:Get("Money") < money and not isMoving then
+      mouseDesc.Money.TextColor3 = Color3.new(1, 0, 0)
+      canPlace = "Not enough money"
+    end
+    if canPlace ~= true then
+      module:SetColor(colorData, BrickColor.new("Bright red"))
+      if not oldHole then
+        for _,obj in pairs(obj:GetChildren()) do
+          if obj.Name:sub(1, 8) == "WallPart" then
+            obj.Transparency = 1
+            wallHandler:ColorPart(obj.BrickColor, "Plastic")
+          end
+        end
+      end
+    end
+    if not isMoving or not "" then
+      do
+        mouseDesc.Money.Text = "$ " .. textHandler:SeparateNumber(money)
+        mouseDesc.Money.TextLabel.Text = mouseDesc.Money.Text
+        mouseDesc.Label2.Visible = canPlace == true
+        mouseDesc.Position = UDim2.new(0, mouse.X, 0, mouse.Y)
+        -- DECOMPILER ERROR: 26 unprocessed JMP targets
+      end
+    end
+  end
+
+      local mouseMove = nil
+      mouseMove = mouse.Move:connect(function()
+    
+    doUpdate = true
+  end
+)
+      local stats = nil
+      stats = clientStats.Updated:connect(function()
+    
+    doUpdate = true
+  end
+)
+      local mouseUp = nil
+      mouseUp = mouse.Button1Up:connect(function()
+    
+    if obj and canPlace == true then
+      isPlacingServer = true
+      if oldHole then
+        wallHandler:FillHole(oldHole.Parent, oldHole, oldWalls)
+        oldHole:Destroy()
+        oldHole = nil
+      end
+      local placed, price, partData = dataManager:InvokeServer({Type = "PlaceObject", Name = item.Name, Pos = curPos, TargetModel = curTarget, Side = curSide, Moved = isMoving})
+      isPlacingServer = false
+      if placed and tonumber(price) then
+        module:MoneyLabel(-price, placed.PrimaryPart.CFrame.p)
+        soundHandler:Play("Place")
+      end
+      if isMoving then
+        isMoving = nil
+        module:StopPlacing()
+        changeList(true)
+      end
+    else
+      do
+        if canPlace ~= true then
+          module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, 1, 0))
+        end
+      end
+    end
+  end
+)
+      repeat
+        if doUpdate then
+          doUpdate = false
+          update()
+        end
+        heartbeat:wait()
+      until isPlacing ~= obj
+      mouseUp:disconnect()
+      mouseMove:disconnect()
+      stats:disconnect()
+      if isMoving and originalPosition then
+        module:SetColor(colorData, nil)
+        obj.Parent = originalParent
+        obj:SetPrimaryPartCFrame(originalPosition)
+        if oldHole then
+          wallHandler:FillHole(oldHole.Parent, oldHole, oldWalls)
+          oldHole:Destroy()
+        end
+        local wallParts = wallHandler:GetWallParts(originalParent.Parent, originalPosition.p)
+        if type(wallParts) == "table" and #wallParts == 2 then
+          wallHandler:CutHole(wallParts, obj.PrimaryPart.Position, obj.PrimaryPart.Size)
+        end
+      else
+        obj:Destroy()
+        if oldHole then
+          wallHandler:FillHole(oldHole.Parent, oldHole, oldWalls)
+          oldHole:Destroy()
+        end
+      end
+      oldWalls = nil
+      oldHole = nil
+    elseif item.Object then
+      if isMoving == "Inventory" or not isMoving then
+        local obj = item.Object:clone()
+	  end
+			local obj = item.Object:clone()
+      local originalPosition = isMoving and isMoving ~= "Inventory" and obj.PrimaryPart and obj.PrimaryPart.CFrame or nil
+      local originalParent = originalPosition and obj.Parent or nil
+			if not plot then
+				warn("Plot is nil")
+				return
+			end
+
+			if not plot.PrimaryPart then
+				warn("Plot has no PrimaryPart set:", plot.Name)
+				return
+			end
+
+			local plotRotation = -math.atan2(plot.PrimaryPart.CFrame.LookVector.Z, plot.PrimaryPart.CFrame.LookVector.X) - math.pi * 0.5
+
+      obj.Parent = workspace:WaitForChild("MouseIgnore")
+      isPlacing = obj
+      local colorData = module:GetColorList(obj)
+      local customRotateInc = item.RotateIncrement
+      if not item.DisableRotation or not customRotateInc then
+        local rotateInc = math.rad(4.5)
+	  end
+			local rotateInc = math.rad(4.5)
+      local customGridInc = item.GridSize
+      local gridInc = customGridInc or 0.25
+      local canPlace = false
+      local curPos, centerPos = nil, nil
+      local canRotate = true
+      local rotating = false
+      local rotateNum = 0
+      local rotateMouse = 0
+      local canMove = true
+      local oldCounter = nil
+      if originalPosition then
+        rotateMouse = -math.atan2(originalPosition.lookVector.z, originalPosition.lookVector.x) - math.pi * 0.5
+        if not obj.PrimaryPart.Anchored then
+          obj.PrimaryPart.Anchored = true
+        end
+      else
+        rotateMouse = plotRotation
+      end
+      local mouseTarget, target, targetType = nil, nil, nil
+      mouseDesc.Label1.Text = "Move - Preview"
+      mouseDesc.Label2.Text = "Click - " .. (isMoving and "Place" or "Buy")
+      local mouseUp = nil
+      mouseUp = mouse.Button1Up:connect(function()
+    
+    if obj and canPlace == true and canMove then
+      oldCounter = nil
+      rotating = false
+      local tempObject = nil
+      if isMoving then
+        canMove = false
+      else
+        tempObject = obj:clone()
+        tempObject.Parent = workspace:WaitForChild("MouseIgnore")
+        tempObject.Name = "TempObject"
+      end
+      local placed, price = dataManager:InvokeServer({Type = "PlaceObject", Name = item.Name, Pos = centerPos.p, Rot = rotateNum, Moved = isMoving, TargetModel = target})
+      if tempObject then
+        tempObject:Destroy()
+      end
+      oldCounter = nil
+      if placed and tonumber(price) then
+        if item.BSPrice then
+          module:BlockbuxLabel(-price, placed.PrimaryPart.CFrame.p)
+        else
+          module:MoneyLabel(-price, placed.PrimaryPart.CFrame.p)
+        end
+        soundHandler:Play("Place")
+      end
+      if isMoving then
+        if placed then
+          isMoving = nil
+          module:StopPlacing()
+          changeList(true)
+        else
+          canMove = true
+        end
+      end
+    else
+      do
+        if canPlace ~= true then
+          module:ErrorLabel(canPlace, mouse.Hit.p + Vector3.new(0, obj:GetModelSize().Y / 2, 0))
+        end
+        rotating = false
+      end
+    end
+  end
+)
+      local mouseDown = nil
+      mouseDown = mouse.Button1Down:connect(function()
+    
+    if canRotate and obj and rotateInc ~= nil and not item.CanPlaceWalls then
+      rotating = tick()
+    end
+  end
+)
+      local mouseRDown = nil
+      mouseRDown = mouse.Button2Down:connect(function()
+    
+    local lastPos = Vector3.new(mouse.X, mouse.Y)
+    mouse.Button2Up:wait()
+				if (lastPos - Vector3.new(mouse.X, mouse.Y)).magnitude < rightClickDeadzone then
+
+      rotating = nil
+    end
+  end
+)
+      local inputBegan = nil
+      inputBegan = inputService.InputBegan:connect(function(input, processed)
+    
+    if processed then
+      return 
+    end
+    if (input.KeyCode.Name == "R" or canRotate) and rotateInc ~= nil and not item.CanPlaceWalls then
+      local placementGrid = buildSettings:GetPlacementGrid()[2]
+      local curRotateInc = rotateInc * (customRotateInc and 1 or placementGrid)
+      rotateMouse = plotRotation + round((rotateMouse + curRotateInc - plotRotation) / curRotateInc) * curRotateInc
+    end
+  end
+)
+      local checkOffset, collisionPart = nil, nil
+      if obj:findFirstChild("CollisionCheck") then
+        checkOffset = obj.PrimaryPart.CFrame:inverse() * obj.CollisionCheck.CFrame
+        collisionPart = obj.CollisionCheck
+      elseif item.Object:findFirstChild("CollisionCheck") then
+        checkOffset = item.Object.PrimaryPart.CFrame:inverse() * item.Object.CollisionCheck.CFrame
+        collisionPart = item.Object.CollisionCheck:clone()
+        collisionPart.Parent = obj
+      end
+      local rightCounter, leftCounter = nil, nil
+      if item.Type == "Counters" or item.CanConnectCounters then
+        rightCounter = counterHandler:GetConnectedCounter(obj, "Right").Value
+        if rightCounter then
+          counterHandler:UpdateCounter(plot, rightCounter, true)
+          rightCounter = nil
+        end
+        if leftCounter then
+          counterHandler:UpdateCounter(plot, leftCounter, true)
+          -- DECOMPILER ERROR at PC2207: Overwrote pending register: R33 in 'AssignReg'
+
+        end
+      end
+      do
+        if isMoving and originalPosition and item.CanPlaceOnCounter then
+          local placeArea = originalParent.Parent:WaitForChild("PlaceArea")
+          wallHandler:SetTransparency(obj.PrimaryPart, 1)
+          wallHandler:SetTransparency(placeArea, 0)
+        end
+				local RunService = game:GetService("RunService")
+				local lastCastTime = 0
+
+				local function updatePlacement()
+					if not isPlacing or isPlacing ~= obj then return end
+
+					canRotate = true
+					canPlace = "Can't place here"
+
+					local mousePos = module:GetMousePos()
+					if not mousePos then return end
+
+					local placementGrid = buildSettings:GetPlacementGrid()[2]
+					local curRotateInc = rotateInc * (customRotateInc and 1 or placementGrid)
+					local curGridInc = gridInc * (customGridInc and 1 or placementGrid)
+
+					-- Handle rotating
+					if rotating and tick() - rotating > 0.2 and curPos and (mousePos.p - curPos).Magnitude > 1 then
+						local deltaX = mousePos.z - curPos.z
+						local deltaY = mousePos.x - curPos.x
+						if deltaX and deltaY then
+							rotateMouse = -math.atan2(deltaX, deltaY) - math.pi * 0.5
+							if rotateInc > 0 then
+								rotateMouse = plotRotation + round((rotateMouse - plotRotation) / curRotateInc) * curRotateInc
+							end
+						end
+					end
+
+					-- Handle moving
+					if canMove and (not gridInc or gridInc <= 0 or (item.GridOffset or not module:ConvertPos(mousePos.p, curGridInc, gridSize / 2).p)) then
+						curPos = mousePos.p
+					end
+
+					-- Cast ray for target selection throttled
+					local mouseTarget
+					if tick() - lastCastTime >= 0.05 then
+						mouseTarget = module:CastMouseRay()
+						target = module:GetTarget(mouseTarget and mouseTarget.Instance or nil, mouseTarget)
+						lastCastTime = tick()
+					end
+
+					centerPos = nil
+
+					local function canPlaceAt(target, targetType, realTarget)
+						-- Consolidated condition logic
+						if item.Type ~= "Pool Items" or ((item.Floats and targetType == "Pool") or item.FloatFactor or not item.CanPlaceFloor or not item.CanPlaceAreas or not item.CanPlaceGrass or item.CanPlaceWalls or not obj:FindFirstChild("WallOrigin") or item.InteractionType ~= "Computer" or not target or not item.CanPlaceOnCounter or targetType ~= "Counters" or tostring(realTarget) ~= "PlaceArea" or realTarget.Parent ~= target or realTarget.Transparency == 0) then
+							return true
+						end
+						return false
+					end
+
+					-- Handle placement logic
+					if rotating or (not rotating and canPlaceAt(target, targetType, mouseTarget)) then
+						local setCanPlace
+
+						if not rotating then
+							if targetType == "RectangularPath" or 
+								((tostring(mouseTarget):sub(1, 8) == "ChairPos" and item.Type ~= "Chairs") or 
+									targetType == "Carpets") then
+
+								local floor = wallHandler:GetFloor(plot, curPos + Vector3.new(0, 2, 0))
+								curPos = Vector3.new(
+									curPos.X,
+									plot.Ground.Position.Y + plot.Ground.Size.Y / 2 + (floor - 1) * 12,
+									curPos.Z
+								)
+
+							elseif tostring(mouseTarget):sub(1, 8) == "ChairPos" and item.Type == "Chairs" then
+								centerPos = mouseTarget.CFrame * CFrame.new(0, 0.1, -2)
+								canRotate = false
+
+							elseif item.InteractionType == "Computer" and target then
+								local computerPos = target:FindFirstChild("ComputerPos")
+								if computerPos then
+									centerPos = computerPos.CFrame + Vector3.new(0, 0.1, 0)
+									canRotate = false
+								else
+									local closest, closestDist
+									for _, chair in ipairs(target:GetChildren()) do
+										if chair.Name:sub(1, 8) == "ChairPos" then
+											local dist = (chair.Position - mousePos.p).Magnitude
+											if not closestDist or dist < closestDist then
+												closest = chair
+												closestDist = dist
+											end
+										end
+									end
+
+									if closest then
+										centerPos = closest.CFrame * CFrame.new(0, 2.8, -3.6) * CFrame.Angles(0, math.pi, 0)
+										canRotate = false
+									end
+								end
+
+							elseif targetType == "Wall" and (item.CanPlaceWalls or obj:FindFirstChild("WallOrigin")) then
+								setCanPlace = "Unable to find wall"
+								local wallOrigin = obj:FindFirstChild("WallOrigin")
+								local wallPart = wallHandler:GetWallPart(target, mousePos.p)
+
+								if wallPart then
+									local center = wallPart.CFrame * CFrame.new(wallPart.CFrame:Inverse() * target.SizeBox.CFrame.X, 0, 0)
+									local relativePos = target.SizeBox.CFrame:Inverse() * mousePos
+
+									local wallOffset = item.WallOffset or (wallOrigin and 0)
+									if wallOffset == nil or wallOffset == -12 then
+										relativePos = CFrame.new(
+											relativePos.X,
+											math.floor(relativePos.Y / curGridInc) * curGridInc,
+											math.floor(relativePos.Z / curGridInc) * curGridInc
+										)
+
+										local localPos = center:ToObjectSpace(target.SizeBox.CFrame:ToWorldSpace(relativePos))
+										local sideFactor = localPos.x < 0 and 1 or -1
+
+										if item.CanPlaceWalls then
+											centerPos = center * CFrame.new(-0.25 * sideFactor, localPos.Y, localPos.Z) *
+												CFrame.Angles(0, math.pi / 2 * sideFactor, 0)
+											setCanPlace = true
+										else
+											centerPos = center * CFrame.new(-0.25 * sideFactor, localPos.Y + 0.1, localPos.Z) *
+												CFrame.Angles(0, math.pi / 2 * sideFactor, 0) *
+												(wallOrigin.CFrame:Inverse() * obj.PrimaryPart.CFrame)
+
+											canRotate = false
+											rotateNum = -math.atan2(centerPos.LookVector.Z, centerPos.LookVector.X) - math.pi * 0.5
+
+											local ray = Ray.new(centerPos.p + Vector3.new(0, 1, 0), Vector3.new(0, -100, 0))
+											local hit = module:CastRay(ray, obj)
+											local hitTarget, hitType = module:GetTarget(hit and hit.Parent or nil, hit)
+
+											if canPlaceAt(hitTarget, hitType, hit) then
+												setCanPlace = true
+											else
+												print("Cant place here because canPlaceAt failed")
+												setCanPlace = "Can't place here"
+											end
+										end
+
+										if item.CanPlaceOnCounter then
+											centerPos = mouseTarget.CFrame
+											canRotate = false
+
+											local matValue = target:FindFirstChild("ColorGroup1") and target.ColorGroup1:FindFirstChild("Material")
+											obj.PrimaryPart.Transparency = 0
+
+											if not matValue or not matValue.Value then
+												wallHandler:ColorPart(obj.PrimaryPart, mouseTarget.BrickColor, tostring(mouseTarget.Material):sub(15))
+												wallHandler:SetTransparency(mouseTarget, 1)
+												oldCounter = target
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+
+				-- Connect to RenderStepped once when placing starts
+				local connection
+				connection = RunService.RenderStepped:Connect(function()
+					if isPlacing ~= obj then
+						if connection then
+							connection:Disconnect()
+						end
+					else
+						updatePlacement()
+					end
+				end)
+
+        if isMoving and originalPosition then
+          module:SetColor(colorData, nil)
+          obj.Parent = originalParent
+          obj:SetPrimaryPartCFrame(originalPosition)
+          if item.Type == "Counters" or item.CanConnectCounters then
+            counterHandler:UpdateCounter(plot, obj, true)
+          elseif item.CanPlaceOnCounter then
+            local placeArea = originalParent:findFirstChild("PlaceArea")
+            local matValue = originalParent:findFirstChild("ColorGroup1") and originalParent.ColorGroup1:findFirstChild("Material") or nil
+            obj.PrimaryPart.Transparency = 0
+            if not matValue or not matValue.Value then
+              do
+                do
+                  wallHandler:ColorPart(obj.PrimaryPart, placeArea.BrickColor, tostring(placeArea.Material):sub(15))
+                  wallHandler:SetTransparency(placeArea, 1)
+                  obj:Destroy()
+                  mouseUp:disconnect()
+                  mouseDown:disconnect()
+                  mouseRDown:disconnect()
+                  inputBegan:disconnect()
+                  do
+                    local obj = Instance.new("Part", workspace:WaitForChild("MouseIgnore"))
+                    obj.Anchored = true
+                    isPlacing = obj
+                    -- DECOMPILER ERROR: 219 unprocessed JMP targets
+                  end
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+module.StopPlacing = function(self)
+  
+  if isPlacing then
+    mouseDesc.Visible = false
+    isPlacing = nil
+    main.PlaceBox:TweenPosition(UDim2.new(1, 4, 1, 50), "In", "Sine", transitionTime, true)
+    wait(transitionTime)
+    if main.PlaceBox.Position.Y.Offset == 50 then
+      main.PlaceBox.Visible = false
+    end
+  end
+end
+
+local oldBtn = nil
+showItemDesc = function(data, btn)
+  
+  if data and btn ~= oldBtn then
+    oldBtn = btn
+    descFrame.NameLabel.Text = tostring(data.Name)
+    descFrame.PriceLabel.Text = (data.BSPrice and "B$ " .. textHandler:SeparateNumber(data.BSPrice)) or (data.Price and "$ " .. textHandler:SeparateNumber(data.Price)) or ""
+    if not data.BSPrice or not Color3.new(0.66666666666667, 0, 1) then
+      descFrame.PriceLabel.TextColor3 = Color3.new(0, 0.66666666666667, 0)
+      local sizeY = 30 + (descFrame.PriceLabel.Text ~= "" and 20 or 5)
+      local labelX = data.Icon and 150 or 5
+      descFrame.ImageLabel.Visible = data.Icon ~= nil
+      if labelX ~= 5 or not "" then
+        do
+          descFrame.ImageLabel.Image = "rbxassetid://" .. data.Icon
+          descFrame.PriceLabel.Position = UDim2.new(0, labelX, 0, descFrame.PriceLabel.Position.Y.Offset)
+          descFrame.DescLabel.Text = data.Desc or ""
+          descFrame.DescLabel.Position = UDim2.new(0, labelX, 0, sizeY)
+          descFrame.DescLabel.Size = UDim2.new(1, -labelX - 5, 0, 800)
+          descFrame.NameLabel.Position = UDim2.new(0, labelX, 0, descFrame.NameLabel.Position.Y.Offset)
+          descFrame.NameLabel.Size = UDim2.new(1, -labelX, 0, descFrame.NameLabel.Size.Y.Offset)
+          sizeY = sizeY + descFrame.DescLabel.TextBounds.Y
+          if data.Stats then
+            descFrame.StatLabel.Visible = true
+            descFrame.StatLabel.Position = UDim2.new(0, labelX, 1, 0)
+            descFrame.StatLabel.Size = UDim2.new(1, -labelX - 5, 0, -800)
+            descFrame.StatLabel.Text = ""
+            for _,stat in pairs({"Environment", "Comfort", "Hygiene", "Quality", "Fun", "Reliability", "Indestructible", "Self-Cleaning"}) do
+              local val = data.Stats[stat]
+              if descFrame.StatLabel.Text ~= "" or not "" then
+                descFrame.StatLabel.Text = descFrame.StatLabel.Text .. (not tonumber(val) or "\n") .. stat .. ": " .. val
+                if descFrame.StatLabel.Text ~= "" or not "" then
+                  do
+                    descFrame.StatLabel.Text = descFrame.StatLabel.Text .. (not val or "\n") .. "+ " .. stat
+                    -- DECOMPILER ERROR at PC259: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                    -- DECOMPILER ERROR at PC259: LeaveBlock: unexpected jumping out IF_STMT
+
+                    -- DECOMPILER ERROR at PC259: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                    -- DECOMPILER ERROR at PC259: LeaveBlock: unexpected jumping out IF_STMT
+
+                  end
+                end
+              end
+            end
+            descFrame.StatLabel.Size = UDim2.new(1, -labelX - 5, 0, -descFrame.StatLabel.TextBounds.Y - 5)
+            sizeY = sizeY - descFrame.StatLabel.Size.Y.Offset + 10
+          else
+            descFrame.StatLabel.Visible = false
+          end
+          descFrame.Position = UDim2.new(0, math.max(7, math.min(btn.AbsolutePosition.X - list.AbsolutePosition.X, list.AbsoluteSize.X - descFrame.AbsoluteSize.X - 7)), 0, 0)
+          descFrame.Size = UDim2.new(0, labelX + 250, 0, descFrame.Size.Y.Offset)
+          descFrame:TweenSize(UDim2.new(0, descFrame.Size.X.Offset, 0, -math.max(sizeY + 10, 150)), "In", "Sine", 0.1, true)
+          if (not data and not btn) or btn == oldBtn then
+            oldBtn = nil
+            descFrame:TweenSize(UDim2.new(0, descFrame.Size.X.Offset, 0, 0), "Out", "Sine", 0.1, true)
+          end
+          -- DECOMPILER ERROR: 16 unprocessed JMP targets
+        end
+      end
+    end
+  end
+end
+
+changeList = function(show)
+  
+  if show then
+    list.Visible = true
+    list:TweenPosition(UDim2.new(1, 4, 0, 0), "In", "Sine", transitionTime, true)
+  else
+    list:TweenPosition(UDim2.new(1, 4, 1, 50), "Out", "Sine", transitionTime, true)
+    showItemDesc()
+    wait(transitionTime)
+    if list.Position.Y.Offset == 50 then
+      list.Visible = false
+    end
+  end
+end
+
+colorButton = function(btn, color)
+  
+  if btn then
+    if btn:IsA("ImageButton") then
+      if not color then
+        btn.ImageColor3 = Color3.new(1, 1, 1)
+        local background = btn:findFirstChild("Background")
+        if background then
+          if not color then
+            background.ImageColor3 = Color3.new(1, 1, 1)
+            for _,obj in pairs(btn:GetChildren()) do
+              if obj:IsA("ImageLabel") and not color then
+                do
+                  obj.ImageColor3 = Color3.new(1, 1, 1)
+                  -- DECOMPILER ERROR at PC51: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                  -- DECOMPILER ERROR at PC51: LeaveBlock: unexpected jumping out IF_STMT
+
+                end
+              end
+            end
+          end
+        end
+      end
+    end
+  end
+end
+
+local catData = {
+	Walls = {Name = "Walls", Desc = "Creates a wall between two points. Create your dream house by just clicking and dragging!"},
+	Floor = {Name = "Floor", Desc = "Used for easy floor building. Generate floor for an entire room with a single click, or choose manual placement for extra control!"},
+	Roof = {Name = "Roof", Desc = "A house should really have a roof! Unless you fancy rain..."},
+	Paths = {Name = "Paths", Desc = "Create various types of paths in your garden. All you need to do is click and drag!"},
+	Windows = {Name = "Windows", Desc = "Fill your walls with windows in different shapes."},
+	Doors = {Name = "Doors", Desc = "Door are essential if you actually want to use the rooms you\'ve built. But that isn\'t that important, right?"},
+	Pools = {Name = "Pools", Desc = "Create a large swimming pool on your backyard. Perfect for hanging out with friends or relaxing on hot summer days."},
+	Fences = {Name = "Fences", Desc = "Creates a fence of chosen type between two points. Fence your garden!"},
+}
+
+local listEvents = {}
+local oldPaths = nil
+
+local buttonSize = scrollFrame.ItemButton.AbsoluteSize
+local buttonPadding = Vector2.new(2, 2)
+local frameMinSize = 414
+local money = clientStats:Get("Money")
+local blockbux = clientStats:Get("Blockbux")
+local maxX = math.max(5, math.floor(scrollFrame.AbsoluteSize.X / (buttonSize.X + buttonPadding.X)))
+local btnCount = 0
+
+
+
+local updateScrollBackgrounds = function()
+
+	local horizontal, vertical = list:WaitForChild("HorizontalScrollBackground"), list:WaitForChild("VerticalScrollBackground")
+	horizontal.Visible = false
+	vertical.Visible = false
+	if scrollFrame.ScrollingEnabled then
+		if scrollFrame.AbsoluteSize.X < scrollFrame.CanvasSize.X.Offset then
+			horizontal.Visible = true
+		end
+		if scrollFrame.AbsoluteSize.Y < scrollFrame.CanvasSize.Y.Offset then
+			vertical.Visible = true
+		end
+	end
+end
+
+-- Refactored and fixed CreateList
+module.CreateList = function(self, path, old)
+	module.isCat = nil
+	module.isType = nil
+
+	for _, event in ipairs(listEvents) do
+		event:Disconnect()
+	end
+	listEvents = {}
+
+	local function clearScrollFrame()
+		for _, child in ipairs(scrollFrame:GetChildren()) do
+			if child:IsA("GuiButton") or child:IsA("ImageButton") then
+				child:Destroy()
+			end
+		end
+	end
+
+	local function wrapSortIndex()
+		curSort = (curSort % #sortModes) + 1
+	end
+
+	local function createItemButton(name, info)
+		local btn = game.ReplicatedStorage:WaitForChild("ItemButton"):Clone()
+		btn.Name = name
+		btn.ImageLabel.Image = "rbxassetid://" .. (info.Icon or "")
+		btn.Parent = scrollFrame
+		btn.Visible = true
+
+		btn.MouseButton1Click:Connect(function()
+			if info and typeof(info) == "table" then
+				module:StartPlacing(info)
+			end
+		end)
+
+		return btn
+	end
+
+	local function createCategoryButton(name, info)
+		local btn = game.ReplicatedStorage:WaitForChild("CategoryButton"):Clone()
+		btn.Name = name .. "Button"
+		local label = btn:WaitForChild("TextLabel")
+		label.Text = info.Name or name
+		label.ZIndex = btn.ZIndex + 1
+		label.Visible = true
+
+		btn.Visible = true
+		btn.Parent = scrollFrame
+
+		btn.MouseEnter:Connect(function()
+			list.BackgroundText.Text = info.Desc
+		end)
+		btn.MouseLeave:Connect(function()
+			list.BackgroundText.Text = ""
+		end)
+		btn.MouseButton1Click:Connect(function()
+			if info.Name == "Walls" then
+				module:StartPlacing({ Name = "Wall", Price = 8 })
+			elseif info.Name == "Decorations" then
+				module:CreateList("Decorations", path)
+			elseif info.Name == "Tables" then
+				module:CreateList("Tables", path)
+			elseif info.Name == "Chairs" then
+				module:CreateList("Chairs", path)
+			elseif info.Name == "Lighting" then
+				module:CreateList("Lighting", path)
+			elseif info.Name == "Comfort" then
+				module:CreateList("Comfort", path)
+			elseif info.Name == "Beds" then
+				module:CreateList("Beds", path)
+			elseif info.Name == "Carpets" then
+				module:CreateList("Carpets", path)
+			elseif info.Name == "Pool Items" then
+				module:CreateList("Pool Items", path)
+			elseif info.Name == "Electronics" then
+				module:CreateList("Electronics", path)
+			elseif info.Name == "Shelves" then
+				module:CreateList("Shelves", path)
+			elseif info.Name == "Counters" then
+				module:CreateList("Counters", path)
+			elseif info.Name == "Kitchen Items" then
+				module:CreateList("Kitchen Items", path)
+			elseif info.Name == "Plumbing" then
+				module:CreateList("Plumbing", path)
+			elseif info.Name == "Training" then
+				module:CreateList("Training", path)
+			elseif info.Name == "Instruments" then
+				module:CreateList("Instruments", path)
+			elseif info.Name == "Vehicles" then
+				module:CreateList("Vehicles", path)
+			end
+		end)
+
+		return btn
+	end
+
+	if path == "All" and categories[old] then
+		local allItems = {}
+		for _, cat in ipairs(categories[old]) do
+			if cat ~= "All" then
+				local catItems = items:GetItems(cat)
+				if catItems then
+					for itemName, itemData in pairs(catItems) do
+						allItems[itemName] = itemData
+					end
+				end
+			end
+		end
+		module.isType = allItems
+	else
+		-- If this is a leaf category (like "Beds"), get its items
+		local itemData = items:GetItems(path)
+		if itemData then
+			module.isType = itemData
+		else
+			module.isCat = categories[path] -- still a subcategory? show category buttons
+		end
+	end
+
+	if module.isType then
+		local filtered = {}
+		for _, data in pairs(module.isType) do
+			table.insert(filtered, data)
+		end
+		module.isType = filtered
+	end
+
+	if not enabled then return end
+	module:StopPlacing()
+
+	if list.Visible or curPath == path then
+		changeList(false)
+	end
+
+	if curPath ~= path and list.Position.Y.Offset >= 48 then
+		list.BackgroundText.Text = ""
+		list.Title.Text = categories[path] and "Categories" or path
+		curPath = path
+		changeList(true)
+		scrollFrame.CanvasPosition = Vector2.new()
+
+		clearScrollFrame()
+
+		local xOffset, yOffset = 0, 0
+		local buttonPadding = Vector2.new(2, 2)
+		local frameMinSize = 414
+		local money = clientStats:Get("Money")
+		local blockbux = clientStats:Get("Blockbux")
+		local maxX = math.max(5, math.floor(scrollFrame.AbsoluteSize.X / (buttonSize.X + buttonPadding.X)))
+		btnCount = 0
+
+		if path == "Build" or path == "Decorate" then
+			for _, name in ipairs(categories[path] or {}) do
+				if name ~= "All" then
+					local info = catData[name] or { Name = name, Desc = "" }
+					local btn = createCategoryButton(name, info)
+					btnCount += 1
+
+					xOffset = xOffset + buttonSize.X + buttonPadding.X
+					if xOffset + buttonSize.X > scrollFrame.AbsoluteSize.X then
+						xOffset = 0
+						yOffset = yOffset + buttonSize.Y + buttonPadding.Y
+					end
+				end
+			end
+		elseif module.isType then
+			for _, itemData in ipairs(module.isType) do
+				local btn = createItemButton(itemData.Name, itemData)
+				btnCount += 1
+
+				xOffset = xOffset + buttonSize.X + buttonPadding.X
+				if xOffset + buttonSize.X > scrollFrame.AbsoluteSize.X then
+					xOffset = 0
+					yOffset = yOffset + buttonSize.Y + buttonPadding.Y
+				end
+			end
+		end
+
+		scrollFrame.CanvasSize = UDim2.new(0, 0, 0, yOffset + buttonSize.Y + buttonPadding.Y)
+		list.Size = UDim2.new(0, math.max((buttonSize.X + buttonPadding.X) * maxX + 12 + scrollFrame.ScrollBarThickness, frameMinSize), list.Size.Y.Scale, list.Size.Y.Offset)
+		list.BackgroundText.Text = btnCount > 0 and "" or "No items found."
+		updateScrollBackgrounds()
+		if path == "Build" or path == "Windows" or path == "Doors" then
+			return
+		end
+	end
+
+	list.Title.Back.Visible = old ~= nil
+	list.Title.Sort.Visible = old ~= nil or path == "Inventory"
+	list.Title.Sort.Position = UDim2.new(1, path == "Inventory" and -32 or -64, 0, 2)
+
+	if old then
+		table.insert(listEvents, list.Title.Back.MouseButton1Down:Connect(function()
+			module:CreateList(old)
+		end))
+	end
+
+	local function updateTable()
+		if path ~= "Inventory" or not inventory:GetContent() then
+			module.isCat = categories[path]
+
+			if path == "All" and categories[old] then
+				local allItems = {}
+				for _, cat in ipairs(categories[old]) do
+					if cat ~= "All" then
+						local catItems = items:GetItems(cat)
+						if catItems then
+							for itemName, itemData in pairs(catItems) do
+								allItems[itemName] = itemData
+							end
+						end
+					end
+				end
+				module.isType = allItems
+				module.isCat = nil
+			end
+
+			if module.isType then
+				local newTable = {}
+				for _, data in pairs(module.isType) do
+					if (path ~= "Inventory" and not data.Hidden) or (path == "Inventory" and not inventory:IsStorage(data)) then
+						if path == "Inventory" then
+							local newData = items:GetItem(tostring(data))
+							newData.InventoryValue = data
+							data = newData
+						end
+						table.insert(newTable, data)
+					end
+				end
+
+				local sortFunc = sortModes[curSort]
+
+				local function safeSortFunc(a, b)
+					local aName = a and a.Name or ""
+					local bName = b and b.Name or ""
+					return aName < bName
+				end
+
+				--table.sort(newTable, sortFunc or safeSortFunc)
+
+				module.isType = newTable
+			end
+		end
+	end
+
+	if old or path == "Inventory" then
+		table.insert(listEvents, list.Title.Sort.MouseButton1Down:Connect(function()
+			wrapSortIndex()
+			updateTable()
+			list.BackgroundText.Text = btnCount > 0 and
+				"This is your personal inventory.\nSpecial items that you've bought and collected are stored here."
+				or "No items found! :("
+		end))
+	end
+
+	updateTable()
+
+	table.insert(listEvents, GUI.Changed:Connect(function() end)) -- Placeholder for any GUI updates
+
+	if path == "Inventory" then
+		table.insert(listEvents, inventory.Updated:Connect(function()
+			updateTable()
+		end))
+	else
+		table.insert(listEvents, clientStats.Updated:Connect(function(stat)
+			if stat.Name == "Money" or stat.Name == "Blockbux" then
+				print("stat is money or blockbux")
+			end
+		end))
+	end
+end
+
+
+
+-- Code before where the else block begins
+-- This is where the logic should be checked, and 'else' is used if the condition is not met
+
+--if game.Workspace then
+	
+--		else
+--			slot.SelectedFrame.Visible = false
+--		end
+--	end
+--	for i = 0, colors - 1 do
+--		local color = BrickColor.palette(i)
+--		local btn = Instance.new("ImageLabel", paintFrame.ClipFrame.ColorFrame)
+--		btn.Name = "Color" .. i
+--		btn.Size = UDim2.new(1 / colors, 0, 1, 0)
+--		btn.Image = "rbxassetid://296022306"
+--		btn.ImageRectSize = Vector2.new(math.max(3, btn.AbsoluteSize.X), 16)
+--		btn.ImageRectOffset = Vector2.new((i == 0 and 0) or (i == colors - 1 and 16 - btn.ImageRectSize.x) or 3, 0)
+--		btn.SliceCenter = Rect.new(0, btn.ImageRectSize.X, btn.ImageRectSize.X, 16 - btn.ImageRectSize.X * 2)
+--		btn.ScaleType = "Slice"
+--		btn.ImageColor3 = color.Color
+--		btn.BackgroundTransparency = 1
+--		btn.Position = UDim2.new(0, prevLabel and prevLabel.Position.X.Offset + prevLabel.AbsoluteSize.X or 0, 0, 0)
+--		btn.BorderSizePixel = 0
+--		btn.ZIndex = 2
+--		prevLabel = btn
+		
+--		btn.MouseEnter:Connect(function()
+--			if data == "Inventory" and inventory:IsNew(data.InventoryValue) then
+--				local newTag = data.InventoryValue:FindFirstChild("New")
+--				if newTag then newTag:Destroy() end
+--				inventory:UpdateNew()
+--				btn.NewLabel.Visible = false
+--			end
+
+--			showItemDesc(data, btn)
+
+--			local hoverColor = Color3.new(color.R * 0.9, color.G * 0.9, color.B * 0.9)
+--			colorButton(btn, hoverColor)
+--			btn.PriceLabel.TextStrokeColor3 = hoverColor
+--		end)
+
+--		btn.MouseLeave:Connect(function()
+--			showItemDesc(nil, btn)
+--			colorButton(btn, color)
+--			btn.PriceLabel.TextStrokeColor3 = color
+--		end)
+--	end
+
+--	-- Hover behavior
+	
+
+--	-- Click to place item or show not enough money
+--	btn.MouseButton1Click:Connect(function()
+--		if not data.BSPrice or data.BSPrice <= clientStats:Get("Blockbux") then
+--			module:StartPlacing(data == "Inventory" and "Inventory" or nil)
+--		else
+--			local frame = productPurchaser:ShowCurrencyFrame(data.BSPrice and "Blockbux" or "Money")
+--			if frame then
+--				frame:WaitForChild("NotEnoughLabel").Visible = true
+--			end
+--		end
+--	end)
+--end
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out DO_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_ELSE_STMT
+
+                        -- DECOMPILER ERROR at PC400: LeaveBlock: unexpected jumping out IF_STMT
+
+
+
+
+local buttonSize = scrollFrame.ItemButton.AbsoluteSize
+local buttonPadding = Vector2.new(2, 2)
+local frameMinSize = 414
+local money = clientStats:Get("Money")
+local blockbux = clientStats:Get("Blockbux")
+local maxX = math.max(5, math.floor(scrollFrame.AbsoluteSize.X / (buttonSize.X + buttonPadding.X)))
+local btnCount = 0
+
+
+
+
+
+
+      local updateScrollBackgrounds = function()
+      
+      local horizontal, vertical = list:WaitForChild("HorizontalScrollBackground"), list:WaitForChild("VerticalScrollBackground")
+      horizontal.Visible = false
+      vertical.Visible = false
+      if scrollFrame.ScrollingEnabled then
+        if scrollFrame.AbsoluteSize.X < scrollFrame.CanvasSize.X.Offset then
+          horizontal.Visible = true
+        end
+        if scrollFrame.AbsoluteSize.Y < scrollFrame.CanvasSize.Y.Offset then
+          vertical.Visible = true
+        end
+      end
+    end
+
+ 
+mouse.Button1Up:connect(function()
+  
+  if enabled and not isPlacing and not curTool then
+    local mouseTarget = module:CastMouseRay()
+    local object, objectType = module:GetTarget(mouseTarget and mouseTarget.Parent or nil)
+    if object and objectType ~= "Wall" and objectType ~= "Poles" and objectType ~= "Path" and objectType ~= "Pool" and objectType ~= "Fence" and objectType ~= "SpawnedVehicle" then
+      local itemData = items:GetItem(object.Name)
+      if itemData then
+        if itemData.Type == "Doors" or itemData.Type == "Windows" then
+          wallHandler:FillHole(object.Parent.Parent, object.PrimaryPart)
+        end
+        module:StartPlacing(itemData, object)
+      end
+    end
+  end
+end
+)
+main:WaitForChild("PlaceBox"):WaitForChild("Cancel").MouseButton1Click:connect(function()
+  
+  module:StopPlacing()
+  changeList(true)
+end
+)
+GUIHandler:RoundedButtonEffect(main.PlaceBox.Cancel)
+for _,btn in pairs(buildBar:GetChildren()) do
+  if btn:IsA("ImageButton") then
+    GUIHandler:HoverEffect(btn, 0.8)
+    btn.MouseButton1Click:connect(function()
+  
+  if enabled then
+    if btn.Name == "Exit" then
+      module:Exit()
+    else
+      module:EquipTool(btn.Name)
+    end
+  end
+end
+)
+  end
+end
+for _,btn in pairs(list:WaitForChild("Title"):GetChildren()) do
+  if btn:IsA("ImageButton") then
+    GUIHandler:HoverEffect(btn, 0.8)
+  end
+end
+buildSettings.FloorChanged:connect(function(floor)
+  
+  if gridPlane then
+    gridPlane.CFrame = gridPlane.Parent.Ground.CFrame * CFrame.new(0, 12 * (floor - 1), 0)
+  end
+  cameraModule:ChangeFloor(floor)
+end
+)
+return module
