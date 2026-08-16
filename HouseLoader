@@ -1,0 +1,154 @@
+-- House Loader script by Caleb
+local HouseLoaderRemote = game.ReplicatedStorage.Remotes.HouseLoader
+local PlotsFolder = game.Workspace:WaitForChild("Plots")
+
+local validkeys	= {}
+
+-- Impliment a anti-exploit also
+local function generatekey()
+	local chars = "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	local key 	= ""
+
+	for i = 1, 32 do 
+		key = key .. chars:sub(math.random(1, #chars), math.random(1, #chars))
+	end
+	return key
+end
+
+HouseLoaderRemote.OnServerEvent:Connect(function(player, action, inputKey, playerID, isGlobal)
+	if validkeys[player.UserId] == inputKey then
+
+		if action == "LoadHouse" then
+			local playerPlotName = "Plot_" .. player.Name
+			local existingPlot = PlotsFolder:FindFirstChild(playerPlotName)
+			
+			if existingPlot then
+				-- Update just in case it's wrong
+				local mailbox = existingPlot:FindFirstChild("Mail Box")
+				if mailbox then
+					local box = mailbox:FindFirstChild("Box")
+					if box then
+						local nameGUI = box:FindFirstChild("NameGUI")
+						if nameGUI and nameGUI:IsA("BillboardGui") then
+							local nameLabel = nameGUI:FindFirstChild("NameLabel")
+							if nameLabel and nameLabel:IsA("TextLabel") then
+								nameLabel.Text = player.Name .. "'s House"
+							end
+						end
+					end
+				end
+			else
+				local plotclaimed = false
+				
+				for _, plot in pairs(PlotsFolder:GetChildren()) do
+					if plot:IsA("Model") and not plot:FindFirstChild("Claimed") then
+						local plotName = plot.Name
+						local playerName = player.Name
+
+						if plotName:sub(1, 5) == "Plot_" then
+							local claimedUsername = plotName:sub(6)
+
+							if claimedUsername == playerName then
+								warn(player.Name .. " has already claimed this plot.")
+								break
+							end
+						end
+
+						
+						plot.Name = playerPlotName
+						local claimedflag = Instance.new("BoolValue")
+						claimedflag.Name = "Claimed"
+						claimedflag.Value = true
+						claimedflag.Parent = plot
+
+						local plotOrigin = plot.PrimaryPart and plot.PrimaryPart.Position or nil
+						
+						if not plotOrigin then
+							warn("Plot has no primary part set ", plot.Name)
+							continue
+						end
+
+						if plot:FindFirstChild("ForSale") then
+							plot.ForSale:Destroy()
+						end
+						
+						local barrier = game.ReplicatedStorage.HouseData.Barrier:Clone()
+						barrier.Parent = plot
+						barrier:SetPrimaryPartCFrame(CFrame.new(plotOrigin))
+						
+						local mailbox = plot:FindFirstChild("Mail Box")
+						if mailbox then
+							local box = mailbox:FindFirstChild("Box")
+							if box then
+								local nameGUI = box:FindFirstChild("NameGUI")
+								if nameGUI and nameGUI:IsA("BillboardGui") then
+									local nameLabel = nameGUI:FindFirstChild("NameLabel")
+									if nameLabel and nameLabel:IsA("TextLabel") then
+										nameLabel.Text = player.Name .. "'s House"
+									end
+								end
+							end
+						end
+						
+						plotclaimed = true
+						
+						-- Since build mode doesent work, we're just gonna clone the house. Rework this to clone your saved house when build mode comes!
+						local house = game.ReplicatedStorage.HouseData.BloxburgHouse:Clone()
+
+						-- Assuming the part named "Base" is a good reference point
+						local basePart = house:FindFirstChild("House"):FindFirstChild("Base")
+
+						-- Check if the part exists
+						if basePart then
+							house.PrimaryPart = basePart
+						else
+							warn("The house model doesn't have a part named 'Base'. Set a proper PrimaryPart.")
+						end
+
+						-- Now we can set the position and rotation
+						local plotPosition = Vector3.new(-716.239, 5518.656, -590.636) -- Plot's position
+						local plotOrigin = Vector3.new(-704.934, 5508.969, -550.584) -- Plot's origin
+						local offset = plotPosition - plotOrigin
+						local targetPosition = CFrame.new(plotPosition)
+						local plotRotation = CFrame.Angles(0, math.rad(-90), 0) -- Adjust rotation as necessary
+
+						-- Apply the position, rotation, and offset
+						house:SetPrimaryPartCFrame(targetPosition * plotRotation * CFrame.new(offset))
+
+						
+						wait(10)
+						local spawnpoint = plot:FindFirstChild("Spawn")
+						if spawnpoint then
+							HouseLoaderRemote:FireClient(player, "HouseDone", spawnpoint.Position)
+						end
+						barrier:Destroy()
+						game.Workspace.Stats:FindFirstChild(player.Name).IsPlaying.Value = true
+						break
+					end
+				end
+				
+				if not plotclaimed then
+					warn("No avaible plots, how'd you get in here!?")
+				end
+			end
+		end
+	end
+end)
+
+game.Players.PlayerAdded:Connect(function(player)
+	player.CharacterAdded:Connect(function()
+		local key = generatekey()
+		validkeys[player.UserId] = key
+
+		HouseLoaderRemote:FireClient(player, key)
+
+
+		while player and player.Parent do
+			wait(1)
+			local newkey = generatekey()
+			validkeys[player.UserId] = newkey
+			HouseLoaderRemote:FireClient(player, newkey)
+		end
+	end)
+end)
+
