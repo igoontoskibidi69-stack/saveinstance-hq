@@ -1,0 +1,868 @@
+-- Revamp 100% by caleb
+local module = {}
+
+local Players = game:GetService("Players")
+local player = Players.LocalPlayer
+local character = player.Character or player.CharacterAdded:Wait()
+local camera = workspace.CurrentCamera
+local runService = game:GetService("RunService")
+local renderStepped = runService.RenderStepped
+
+local cameraPoints = workspace:WaitForChild("MenuCameraPoints")
+local menu = player:WaitForChild("PlayerGui"):WaitForChild("MainGUI"):WaitForChild("MainMenu") -- adjust if different
+local menuframe = player:WaitForChild("PlayerGui"):WaitForChild("MainGUI"):WaitForChild("MainMenu"):WaitForChild("Offset"):WaitForChild("Frame")
+local main = player:WaitForChild("PlayerGui"):WaitForChild("MainGUI"):WaitForChild("MainMenu"):WaitForChild("Offset"):WaitForChild("Frame"):WaitForChild("Main")
+local choosePlotFrame = player:WaitForChild("PlayerGui"):WaitForChild("MainGUI"):WaitForChild("ChoosePlotFrame")
+local mainFrame = menuframe:WaitForChild("Main")
+local createHouseFrame = menuframe:WaitForChild("NewHouse")
+local hotbar = require(game.StarterGui.Modules:WaitForChild("Hotbar"))
+local characterFrame =  require(game.StarterGui.Modules:WaitForChild("CharacterFrame"))
+local GUIHandler = require(game.StarterGui.Modules:WaitForChild("GUIHandler"))
+local interpolate = require(game.ReplicatedStorage.Modules:WaitForChild("Interpolate"))
+local dataManager = require(game.ReplicatedStorage.Modules:WaitForChild("DataManager"))
+local loadingHandler = require(game.StarterGui.Modules:WaitForChild("LoadingHandler"))
+local clientStats = require(game.StarterGui.Modules:WaitForChild("ClientStats"))
+local inputManager = require(game.StarterGui:WaitForChild("Modules"):WaitForChild("InputManager"))
+local houseData = require(game.ReplicatedStorage.Modules:WaitForChild("HouseData"))
+local textModule = require(game.ReplicatedStorage.Modules:WaitForChild("TextModule"))
+local plotHandler = require(game.ReplicatedStorage.Modules:WaitForChild("PlotHandler"))
+local productManager = (require(game.ReplicatedStorage.Modules:WaitForChild("ProductManager")))
+local productPurchaser = require(game.StarterGui.Modules:WaitForChild("ProductPurchaser"))
+local optionsHandler = require(game.StarterGui.Modules:WaitForChild("OptionsHandler"))
+local soundHandler = require(game.StarterGui:WaitForChild("Modules"):WaitForChild("SoundHandler"))
+local hotbarmodule = require(game.StarterGui:WaitForChild("Modules"):WaitForChild("Hotbar"))
+local premiumID = productManager:GetAssetID("Premium")
+
+local loadingLabel = menuframe:WaitForChild("LoadingLabel")
+local logo = menuframe:WaitForChild("Logo")
+local houseFrame = menuframe:WaitForChild("Houses")
+
+local mainButtons = {}
+
+showMain = function()
+
+	characterFrame:SetState(false, true)
+	--inputManager:AddSelection("MainMenu_Main", mainButtons)
+	mainFrame.Visible = true
+	mainFrame:TweenPosition(UDim2.new(mainFrame.Position.X.Scale, 0, 0.4, 0), "Out", "Quad", 1, true)
+	
+	menu:WaitForChild("VersionLabel").Text = game.ReplicatedStorage:WaitForChild("Version"):WaitForChild("VersionString").Value
+end
+
+local initLoadFailed = false
+spawn(function()
+	dataManager:WaitEvent("InitialLoadFailed", player)
+	print("Waiting for event InitalLoadFailed")
+	initLoadFailed = true
+	GUIHandler:AlertBox("Unable to load data!\nPlease try again later on another server...", "Loading Failed")
+end
+)
+
+local running = false
+
+module.SetAllState = function(self, state)
+
+	hotbar:SetState(state)
+	characterFrame:SetState(state)
+end
+
+housesBack = function()
+
+	inputManager:RemoveSelection("MainMenu_Houses")
+	inputManager:UnbindAction("MainMenu_Houses")
+	houseFrame:TweenPosition(UDim2.new(houseFrame.Position.X.Scale, 0, 1, 0), "Out", "Quad", 1, true)
+end
+
+local houseTemplates = houseData:GetOrderedData()
+local selectedHouseTemplate = 1
+local createNewHouse = Instance.new("BindableEvent", script)
+updateCreateHouse = function(change)
+
+	local isFirst = #clientStats:GetStat("Houses"):GetChildren() < 1
+	selectedHouseTemplate = selectedHouseTemplate + (change or 0)
+	if selectedHouseTemplate <= 0 then
+		selectedHouseTemplate = #houseTemplates
+	elseif #houseTemplates < selectedHouseTemplate then
+		selectedHouseTemplate = 1
+	end
+	local selectedTemplate = houseTemplates[selectedHouseTemplate]
+	if isFirst and selectedTemplate.Name == "Empty Plot" then
+		selectedHouseTemplate = 2
+		selectedTemplate = houseTemplates[selectedHouseTemplate]
+	end
+	createHouseFrame:WaitForChild("HouseBox").Image = "rbxassetid://" .. selectedTemplate.Icon
+	createHouseFrame.HouseBox:WaitForChild("TitleLabel").Text = selectedTemplate.Name
+	local priceLabel = createHouseFrame.HouseBox:WaitForChild("PriceLabel"):WaitForChild("PriceLabel")
+	priceLabel.Text = ((not isFirst or not selectedTemplate.IsStarter or not "Free!") and (not selectedTemplate.BSPrice or not textModule:SeparateNumber(selectedTemplate.BSPrice) .. " B$") and (selectedTemplate.Price > 0 and textModule:SeparateNumber(selectedTemplate.Price) .. " $")) or "Free!"
+	do
+		local showBack = true
+		createHouseFrame:WaitForChild("Back").Visible = showBack
+		createHouseFrame:WaitForChild("Select").Size = UDim2.new(0.65, -14, showBack and 0.078 or 0.166, 0)
+	end
+end
+
+closeCreateHouse = function()
+	createHouseFrame:TweenPosition(UDim2.new(createHouseFrame.Position.X.Scale, 0, 1, 0), "Out", "Quad", 1, true)
+
+	if #clientStats:GetStat("Houses"):GetChildren() < 1 then
+		showMain()
+	else
+		showHouses()
+	end
+end
+
+
+showCreateHouse = function()
+	characterFrame:SetState(false, true)
+	createHouseFrame.Visible = true
+	createHouseFrame.Position = UDim2.new(createHouseFrame.Position.X.Scale, 0, 1, 0)
+	createHouseFrame:TweenPosition(UDim2.new(createHouseFrame.Position.X.Scale, 0, 0.4, 0), "Out", "Quad", 1, true)
+
+	local ownedHouses = clientStats:GetStat("Houses"):GetChildren()
+	selectedHouseTemplate = #ownedHouses < 1 and #houseTemplates - 2 or 1
+
+	--inputManager:AddSelection("MainMenu_SelectNewHouse", {})
+	inputManager:BindAction(
+		"MainMenu_SelectNewHouse",
+		function(actionName, inputState, inputObject)
+			if inputState == Enum.UserInputState.Begin then
+				local key = inputObject.KeyCode
+				if key == Enum.KeyCode.DPadLeft or key == Enum.KeyCode.Left or key == Enum.KeyCode.ButtonL2 then
+					updateCreateHouse(-1)
+				elseif key == Enum.KeyCode.DPadRight or key == Enum.KeyCode.Right or key == Enum.KeyCode.ButtonR2 then
+					updateCreateHouse(1)
+				elseif key == Enum.KeyCode.Backspace or key == Enum.KeyCode.ButtonB then
+					closeCreateHouse()
+				elseif key == Enum.KeyCode.Return or key == Enum.KeyCode.ButtonA then
+					createNewHouse:Fire()
+				end
+			end
+		end,
+		false,
+		Enum.KeyCode.Return,
+		Enum.KeyCode.ButtonA,
+		Enum.KeyCode.Backspace,
+		Enum.KeyCode.ButtonB,
+		Enum.KeyCode.DPadLeft,
+		Enum.KeyCode.Left,
+		Enum.KeyCode.DPadRight,
+		Enum.KeyCode.Right,
+		Enum.KeyCode.ButtonL2,
+		Enum.KeyCode.ButtonR2
+	)
+
+	updateCreateHouse()
+end
+
+
+local emptyPlots = {}
+local selectedPlot = 1
+local selectionBox = script:WaitForChild("SelectionBox")
+
+changePlot = function(dif)
+
+	selectedPlot = selectedPlot + dif
+	if #emptyPlots < selectedPlot then
+		selectedPlot = 1
+	else
+		if selectedPlot < 1 then
+			selectedPlot = #emptyPlots
+		end
+	end
+end
+
+choosePlotCamera = function()
+	local plot = emptyPlots[selectedPlot]
+
+	if plot then
+		local ground = plot:FindFirstChild("Ground") or plot:WaitForChild("Ground")
+		local center = CFrame.new(ground.Position)
+
+		camera.CFrame = center
+			* CFrame.Angles(0, tick() * 0.2 % (math.pi * 2), 0)
+			* CFrame.Angles(0.5, 0, 0)
+			* CFrame.new(0, 0, -100)
+			* CFrame.Angles(0, math.pi, 0)
+
+		camera.Focus = center
+		selectionBox.Adornee = ground
+		selectionBox.Transparency = math.clamp(math.abs(math.sin(tick() * 3)), 0, 1)
+	else
+		selectionBox.Adornee = nil
+	end
+end
+
+
+choosePlot = function(failed)
+	if not plotHandler:GetPlot() and productManager:OwnsAssetAsync(premiumID) then
+		module:HideMenu(true)
+		module:SetAllState(false)
+
+		choosePlotFrame.Visible = true
+		choosePlotFrame:TweenPosition(
+			UDim2.new(choosePlotFrame.Position.X.Scale, choosePlotFrame.Position.X.Offset, 1, -200),
+			"Out", "Quad", 1, true
+		)
+
+		selectedPlot = 1
+		emptyPlots = plotHandler:GetPlots("Empty")
+		selectionBox.Parent = game.Players.LocalPlayer.PlayerGui:WaitForChild("MainGUI").Parent
+		runService:BindToRenderStep("ChoosePlotCamera", 10000, choosePlotCamera)
+
+		if failed then
+			GUIHandler:AlertBox("Unable to select plot!\nTry another one...", "Plot Unavailable")
+		end
+
+		local clickEvent = Instance.new("BindableEvent")
+		clickEvent.Parent = script
+
+		local clickCon
+		clickCon = choosePlotFrame:WaitForChild("Select").MouseButton1Down:Connect(function()
+			clickEvent:Fire()
+		end)
+
+		--inputManager:AddSelection("MainMenu_SelectPlot", {})
+		inputManager:BindAction(
+			"MainMenu_SelectPlot", 
+			function(actionName, inputState, inputObject)
+				if inputState == Enum.UserInputState.Begin then
+					local type = inputObject.KeyCode.Name
+					if type == "DPadLeft" or type == "Left" or type == "ButtonL2" then
+						changePlot(-1)
+					elseif type == "DPadRight" or type == "Right" or type == "ButtonR2" then
+						changePlot(1)
+					else
+						clickEvent:Fire()
+					end
+				end
+			end,
+			Enum.KeyCode.Return, Enum.KeyCode.ButtonA,
+			Enum.KeyCode.DPadLeft, Enum.KeyCode.Left,
+			Enum.KeyCode.DPadRight, Enum.KeyCode.Right,
+			Enum.KeyCode.ButtonL2, Enum.KeyCode.ButtonR2
+		)
+
+		clickEvent.Event:Wait()
+
+		clickCon:Disconnect()
+		inputManager:UnbindAction("MainMenu_SelectPlot")
+		inputManager:RemoveSelection("MainMenu_SelectPlot")
+
+		loadingHandler:ShowLoading()
+		runService:UnbindFromRenderStep("ChoosePlotCamera")
+		selectionBox.Parent = script
+
+		local didSelect = dataManager:InvokeServer({
+			Type = "SelectPlot",
+			Plot = emptyPlots[selectedPlot]
+		})
+
+		if didSelect then
+			choosePlotFrame:TweenPosition(
+				UDim2.new(choosePlotFrame.Position.X.Scale, choosePlotFrame.Position.X.Offset, 1, 0),
+				"Out", "Quad", 1, true,
+				function(status)
+					if status == Enum.TweenStatus.Completed then
+						choosePlotFrame.Visible = false
+					end
+				end
+			)
+
+			module:ShowMenu(true)
+			inputManager:RemoveSelection("MainMenu_Main")
+		else
+			choosePlot(true)
+		end
+	end
+end
+
+choosePlot = function(failed)
+	if not plotHandler:GetPlot() and productManager:OwnsAssetAsync(premiumID) then
+		module:HideMenu(true)
+		module:SetAllState(false)
+
+		choosePlotFrame.Visible = true
+		choosePlotFrame:TweenPosition(
+			UDim2.new(choosePlotFrame.Position.X.Scale, choosePlotFrame.Position.X.Offset, 1, -200),
+			"Out", "Quad", 1, true
+		)
+
+		selectedPlot = 1
+		emptyPlots = plotHandler:GetPlots("Empty")
+		selectionBox.Parent = game.Players.LocalPlayer.PlayerGui:WaitForChild("MainGUI").Parent
+		runService:BindToRenderStep("ChoosePlotCamera", 10000, choosePlotCamera)
+		loadingHandler:HideLoading()
+
+		if failed then
+			GUIHandler:AlertBox("Unable to select plot!\nTry another one...", "Plot Unavailable")
+		end
+
+		local clickEvent = Instance.new("BindableEvent")
+		clickEvent.Parent = script
+
+		local clickCon
+		clickCon = choosePlotFrame:WaitForChild("Select").MouseButton1Down:Connect(function()
+			clickEvent:Fire()
+		end)
+
+		--inputManager:AddSelection("MainMenu_SelectPlot", {})
+		inputManager:BindAction(
+			"MainMenu_SelectPlot", 
+			function(actionName, inputState, inputObject)
+				if inputState == Enum.UserInputState.Begin then
+					local type = inputObject.KeyCode.Name
+					if type == "DPadLeft" or type == "Left" or type == "ButtonL2" then
+						changePlot(-1)
+					elseif type == "DPadRight" or type == "Right" or type == "ButtonR2" then
+						changePlot(1)
+					else
+						clickEvent:Fire()
+					end
+				end
+			end,
+			Enum.KeyCode.Return, Enum.KeyCode.ButtonA,
+			Enum.KeyCode.DPadLeft, Enum.KeyCode.Left,
+			Enum.KeyCode.DPadRight, Enum.KeyCode.Right,
+			Enum.KeyCode.ButtonL2, Enum.KeyCode.ButtonR2
+		)
+
+		clickEvent.Event:Wait()
+
+		clickCon:Disconnect()
+		inputManager:UnbindAction("MainMenu_SelectPlot")
+		inputManager:RemoveSelection("MainMenu_SelectPlot")
+
+		loadingHandler:ShowLoading()
+		runService:UnbindFromRenderStep("ChoosePlotCamera")
+		selectionBox.Parent = script
+
+		local didSelect = dataManager:InvokeServer({
+			Type = "SelectPlot",
+			Plot = emptyPlots[selectedPlot]
+		})
+
+		if didSelect then
+			choosePlotFrame:TweenPosition(
+				UDim2.new(choosePlotFrame.Position.X.Scale, choosePlotFrame.Position.X.Offset, 1, 0),
+				"Out", "Quad", 1, true,
+				function(status)
+					if status == Enum.TweenStatus.Completed then
+						choosePlotFrame.Visible = false
+					end
+				end
+			)
+
+			module:ShowMenu(true)
+			inputManager:RemoveSelection("MainMenu_Main")
+		else
+			choosePlot(true)
+		end
+	end
+end
+
+local updateHouseScroll = nil
+
+showHouses = function()
+	characterFrame:SetState(false, true)
+	houseFrame.Visible = true
+	houseFrame.Position = UDim2.new(houseFrame.Position.X.Scale, 0, 1, 0)
+	houseFrame:TweenPosition(UDim2.new(houseFrame.Position.X.Scale, 0, 0.4, 0), "Out", "Quad", 1, true)
+	local scrollFrame = houseFrame:WaitForChild("List"):WaitForChild("ScrollFrame")
+
+	-- Hide or destroy existing buttons in the scroll frame
+	for _, offset in pairs(scrollFrame:GetChildren()) do
+		local button = offset:WaitForChild("Button")
+		if offset.Name == "HouseButton" or offset.Name == "NewHouse" then
+			offset.Visible = false
+		else
+			offset:Destroy()
+		end
+	end
+
+	local createdButtons = {}
+	local canClick = true
+
+	-- Create buttons for each house
+	for index, house in pairs(clientStats:GetStat("Houses"):GetChildren()) do
+		local button = scrollFrame.HouseButton:clone()
+		button.Visible = true
+		button.Name = tostring(house) .. "_Button"
+		button.Size = UDim2.new(1, 0, 0.16 * #createdButtons, 1)
+
+		if tostring(house) ~= "" then
+			button:WaitForChild("Button"):WaitForChild("NameLabel").Text = tostring(house)
+			GUIHandler:RoundedButtonEffect(button:WaitForChild("Button"))
+
+			button:WaitForChild("Button").MouseButton1Down:connect(function()
+				if canClick then
+					canClick = false
+					housesBack()
+
+					if tostring(house) == "" then
+						showCreateHouse()
+					else
+						loadingHandler:ShowLoading()
+						choosePlot()
+						local worked = dataManager:InvokeServer({Type = "LoadHouse", House = house})
+						if worked then
+							module:HideMenu()
+							loadingHandler:HideLoading()
+						else
+							loadingHandler:HideLoading()
+							if not plotHandler:GetPlot() then
+								GUIHandler:AlertBox("The server is currently full!\nJoin a different one or try again later...", "Full Server")
+							else
+								GUIHandler:AlertBox("Failed to load house!\nTry again later...", "Loading Failed")
+							end
+							showHouses()
+						end
+					end
+				end
+			end)
+
+			button.Parent = scrollFrame
+			table.insert(createdButtons, button.Button)
+		end
+	end
+
+	-- Button to create a new house slot
+	local button = scrollFrame.NewHouse:clone()
+	button.Visible = true
+	button.Name = button.Name .. "_Used"
+	button.Size = UDim2.new(1, 0, 0.16 * #createdButtons)
+	GUIHandler:RoundedButtonEffect(button:WaitForChild("Button"))
+
+	button:WaitForChild("Button").MouseButton1Down:connect(function()
+		if canClick then
+			if clientStats:Get("Blockbux") >= 300 then
+				canClick = false
+				housesBack()
+				loadingHandler:ShowLoading()
+				local worked = dataManager:InvokeServer({Type = "NewHouseSlot"})
+				if worked then
+					showCreateHouse()
+				else
+					loadingHandler:HideLoading()
+					GUIHandler:AlertBox("Unable to create new house slot!\nTry again later...", "Creation Failed")
+					showHouses()
+				end
+			else
+				local frame = productPurchaser:ShowCurrencyFrame("Blockbux")
+				frame:WaitForChild("NotEnoughLabel").Visible = true
+			end
+		end
+	end)
+
+	button.Parent = scrollFrame
+	table.insert(createdButtons, button.Button)
+
+	-- Adding input manager selection and binding action for Backspace or ButtonB
+	--inputManager:AddSelection("MainMenu_Houses", createdButtons)
+	inputManager:BindAction(
+		"MainMenu_Houses",
+		function(actionName, inputState, inputObject)
+			if inputState == Enum.UserInputState.Begin then
+				housesBack()
+				showMain()
+			end
+		end,
+		Enum.KeyCode.Backspace, Enum.KeyCode.ButtonB
+	)
+
+	-- Update house scroll size
+	updateHouseScroll = function()
+		scrollFrame.CanvasSize = UDim2.new(0, 0, 0, scrollFrame.AbsoluteSize.X * 0.16 * #createdButtons)
+	end
+
+	updateHouseScroll()
+end
+
+function module.AnimateCamera()
+	if running then return end
+	running = true
+
+	task.spawn(function()
+		local lastRandom = nil
+
+		local function getValidRandom()
+			local validSets = {}
+			for _, camSet in ipairs(cameraPoints:GetChildren()) do
+				if #camSet:GetChildren() >= 2 then
+					table.insert(validSets, camSet)
+				end
+			end
+
+			if #validSets == 0 then
+				player:Kick("No valid camera sets.")
+			end
+
+			local newIndex
+			repeat
+				newIndex = math.random(#validSets)
+			until newIndex ~= lastRandom
+
+			lastRandom = newIndex
+			return validSets[newIndex]
+		end
+
+		camera.CameraType = Enum.CameraType.Scriptable
+		camera.CameraSubject = nil
+
+		while menu and menu.Visible and running do
+			task.wait()
+
+			local set = getValidRandom()
+			if not set then break end
+
+			local points = set:GetChildren()
+			local pointA = points[1]
+			local pointB = points[2]
+
+			local distance = (pointA.Position - pointB.Position).Magnitude
+			local waitTime = distance / 10
+
+			camera.CFrame = pointA.CFrame
+			camera.Focus = pointA.CFrame * CFrame.new(0, 0, -10)
+
+			local success, err = pcall(function()
+				camera:Interpolate(pointB.CFrame, pointB.CFrame * CFrame.new(0, 0, -10), waitTime)
+				task.wait(waitTime + 0.1)
+			end)
+
+			if not success then
+				warn("[MenuCamera] Interpolation error:", err)
+				task.wait(1)
+			end
+		end
+
+		module.ResetCamera()
+	end)
+end
+
+function module.Stop()
+	running = false
+end
+
+function module.ResetCamera()
+	camera.CameraType = Enum.CameraType.Custom
+	camera.CameraSubject = player.Character and player.Character:FindFirstChildWhichIsA("Humanoid")
+end
+
+module.ShowMenu = function(self, ignoreSound)
+	menu.BackgroundTransparency = 0
+	
+	logo.Position = UDim2.new(-0.125, 0, 0.2, 0)
+	logo.Size = UDim2.new(1.25, 0, 0.5, 0)
+	
+	module:SetAllState(false)
+	
+	for _,frame in pairs(menuframe:GetChildren()) do
+		if frame:IsA("GuiObject") and frame.Name ~= "LoadingLabel" then
+			frame.Visible = false
+		end
+	end
+	
+	--showMain()
+	if not ignoreSound then
+		game.StarterGui.Modules.SoundHandler:WaitForChild("Local").MenuSong:Play()
+	end
+	
+	menu.Visible = true
+	
+	interpolate(1, "Out", "Quad", function(t)
+		menu.BackgroundTransparency = t
+	end, true)
+	
+	camera.CameraType = Enum.CameraType.Scriptable
+	camera.CameraSubject = nil
+	
+	camera.CFrame = game.Workspace.MenuFirst.CFrame
+	
+	loadingLabel.Visible = true
+
+	local start = tick()
+	repeat
+		local delta = tick() - start
+		loadingLabel.Text = "Waiting for data to load" .. string.rep(".", math.floor(delta * 2) % 3 + 1)
+		renderStepped:Wait()
+	until (delta >= 2)
+
+	if initLoadFailed then
+		loadingLabel.Text = "Loading failed!"
+		return false
+	else
+		loadingLabel.Text = "Data loaded!"
+	end
+
+	logo.Visible = true
+
+	-- Collect and send house data
+	local houseData = {}
+
+	for _, house in ipairs(clientStats:GetStat("Houses"):GetChildren()) do
+		local positionVector = Vector3.new(0, 0, 0)
+
+		-- Try getting a Position Vector3Value first
+		local positionValue = house:FindFirstChild("Position")
+		if positionValue and positionValue:IsA("Vector3Value") then
+			positionVector = positionValue.Value
+		elseif house:IsA("Model") and house.PrimaryPart then
+			-- If the house is a model with PrimaryPart, use its position
+			positionVector = house.PrimaryPart.Position
+		end
+
+		-- Insert serialized position (as a table of X, Y, Z numbers)
+		table.insert(houseData, {
+			Name = house.Name,
+			Template = house:FindFirstChild("Template") and house.Template.Value or "",
+			Position = {X = positionVector.X, Y = positionVector.Y, Z = positionVector.Z}
+		})
+	end
+
+
+
+	if #houseData > 0 then -- Only send if there is data
+		local success, err = pcall(function()
+			dataManager:FireServer({
+				Type = "SaveHouseData",
+				Data = houseData
+			})
+		end)
+
+		if not success then
+			warn("[ShowMenu] Failed to send house data for saving! Error:", err)
+		end
+	else
+		warn("[ShowMenu] No house data found to send.")
+	end
+
+	logo:TweenSizeAndPosition(UDim2.new(0.8, 0, 0.32, 0), UDim2.new(0.1, 0, 0.05, 0), "Out", "Quad", 1, true)
+	loadingLabel:TweenPosition(UDim2.new(loadingLabel.Position.X.Scale, 0, 1, 0), "Out", "Quad", 1, true)
+
+	local workinprogressmessage = GUIHandler.createMessageBox("'Welcome to Bloxburg' is in an early stage of development and is actively being worked on.\n\nGameplay is not final and bugs may occur.\n\nPlease send suggestions and bug reports to Coeptus.", "Work in progress!", Color3.fromRGB(0, 170, 255))
+	showMain()
+	
+	for _, button in pairs(mainFrame:GetChildren()) do
+		if button:FindFirstChild("TextLabel") and button.TextLabel.TextTransparency == 0 then
+			GUIHandler:RoundedButtonEffect(button)
+			table.insert(mainButtons, button)
+
+			button.MouseButton1Down:Connect(function()
+				if button.Name == "Play" then
+					if #clientStats:GetStat("Houses"):GetChildren() < 1 then
+						showCreateHouse()
+					else
+						showHouses()
+					end
+				elseif button.Name == "Store" then
+					inputManager:RemoveSelection("MainMenu_Main")
+					mainFrame:TweenPosition(UDim2.new(mainFrame.Position.X.Scale, 0, 1, 0), "Out", "Quad", 1, true)
+					GUIHandler.createMessageBox("All gamepasses go to the main game. Purchased a gamepass there, syncs here", "Notice", Color3.fromRGB(0, 170, 255))
+					productPurchaser:ShowStore()
+					showMain()
+					return
+				elseif button.Name == "Options" then
+					inputManager:RemoveSelection("MainMenu_Main")
+					mainFrame:TweenPosition(UDim2.new(mainFrame.Position.X.Scale, 0, 1, 0), "Out", "Quad", 1, true)
+					optionsHandler:ShowOptions()
+					showMain()
+					return
+				end
+				inputManager:RemoveSelection("MainMenu_Main")
+				mainFrame:TweenPosition(UDim2.new(mainFrame.Position.X.Scale, 0, 1, 0), "Out", "Quad", 1, true)
+			end)
+			
+			local housesBackButton = houseFrame:WaitForChild("Back")
+			GUIHandler:RoundedButtonEffect(housesBackButton)
+			housesBackButton.MouseButton1Down:Connect(function()
+				housesBack()
+				showMain()
+			end)
+
+			for _, obj in pairs(createHouseFrame:GetChildren()) do
+				if obj:IsA("ImageButton") then
+					GUIHandler:RoundedButtonEffect(obj)
+					obj.MouseButton1Down:Connect(function()
+						if obj.Name == "Back" then
+							closeCreateHouse()
+						elseif obj.Name == "Next" then
+							updateCreateHouse(1)
+						elseif obj.Name == "Previous" then
+							updateCreateHouse(-1)
+						elseif obj.Name == "Select" then
+							createNewHouse:Fire()
+						end
+					end)
+				end
+			end
+			
+			createNewHouse.Event:Connect(function()
+				local selectedTemplate = houseTemplates[selectedHouseTemplate]
+				local price = selectedTemplate.Price
+				local houseCount = #clientStats:GetStat("Houses"):GetChildren()
+				local isStarter = selectedTemplate.IsStarter
+				local priceType
+
+				if houseCount < 1 and isStarter then
+					price = 0
+					priceType = "Money"
+				elseif selectedTemplate.BSPrice then
+					price = selectedTemplate.BSPrice
+					priceType = "Blockbux"
+				else
+					price = selectedTemplate.Price
+					priceType = "Money"
+				end
+
+
+				if price <= clientStats:Get(priceType) then
+					createHouseFrame:TweenPosition(UDim2.new(createHouseFrame.Position.X.Scale, 0, 1, 0), "Out", "Quad", 1, true)
+					inputManager:UnbindAction("MainMenu_SelectNewHouse")
+					inputManager:RemoveSelection("MainMenu_SelectNewHouse")
+
+					local function promptName(name)
+						if not name then
+							local houseName = GUIHandler.CreateInputBox("Name your house", selectedTemplate.Name, game.Players.LocalPlayer.PlayerGui.MainGUI, 0.5, inputManager)
+							if not plotHandler:CheckPlotName(houseName, player) then
+								GUIHandler:AlertBox("The name you entered was invalid!\nPlease choose a different one...", "Invalid Name")
+								return promptName(houseName)
+							end
+							return houseName
+						end
+					end
+
+					local houseName = promptName()
+					choosePlot()
+					loadingHandler:ShowLoading()
+
+					local success, worked = pcall(function()
+						return dataManager:InvokeServer({Type = "NewHouse", Index = selectedHouseTemplate, Name = houseName})
+					end)
+					
+					if success and worked then
+						module:HideMenu()
+						menu.Visible = false
+						camera.CameraType = "Custom"
+						soundHandler:Stop("MenuSong", 1)
+						loadingHandler:HideLoading()
+						local loadingFrame = player.PlayerGui.MainGUI:FindFirstChild("LoadingFrame")
+						if loadingFrame and loadingFrame.Visible == true then
+							loadingFrame.Visible = false
+						end
+						
+						local position = game.Workspace.Plots:WaitForChild("Plot_" .. player.Name):WaitForChild("Spawn").Position
+						
+						if character and character.PrimaryPart then
+							character:PivotTo(CFrame.new(position + Vector3.new(0, 5, 0)))
+						end
+							
+						if game.StarterGui.Modules.SoundHandler:WaitForChild("Local").MenuSong.IsPlaying then
+							game.StarterGui.Modules.SoundHandler:WaitForChild("Local").MenuSong:Stop()
+						end
+					else
+						loadingHandler:HideLoading()
+						if not plotHandler:GetPlot() then
+							GUIHandler:AlertBox("The server is currently full!\nJoin a different one or try again later...", "Full Server")
+						else
+							GUIHandler:AlertBox("Failed to create new house!\nTry again later...", "Creation Failed")
+						end
+						showCreateHouse()
+					end
+					--loadingHandler:HideLoading()
+				else
+					GUIHandler:AlertBox("Not enough currency! Please try again later..", "Currency Failure")
+					local frame = productPurchaser:ShowCurrencyFrame(priceType)
+					frame:WaitForChild("NotEnoughLabel").Visible = true
+				end
+			end)
+		end
+	end
+end
+
+module.HideMenu = function(self, ignoreSound)
+
+	module:SetAllState(true)
+	menu.Visible = false
+	camera.CameraType = "Custom"
+	if not ignoreSound then
+		spawn(function()
+			soundHandler:Stop("MenuSong", 1)
+		end
+		)
+	end
+end
+
+local rewardFrame = game.Players.LocalPlayer.PlayerGui.MainGUI:WaitForChild("DailyReward")
+local claimButton = rewardFrame:WaitForChild("Close")
+delay(1, function()
+
+	GUIHandler:RoundedButtonEffect(claimButton)
+end
+)
+--dataManager:HookFunction("DailyReward", function(data)
+--	spawn(function()
+--		GUIHandler:Queue(function()
+--			soundHandler:Play("Paycheck")
+--			local isPremium = productManager:OwnsAsset(premiumID)
+--			if isPremium then
+--				rewardFrame:WaitForChild("TitleLabel").TextColor3 = Color3.new(1, 0, 0)
+--				rewardFrame.TitleLabel.Text = "Daily Premium Reward"
+--				claimButton.ImageColor3 = Color3.new(1, 0, 0)
+--			end
+
+--			local fadeTime = 0.4
+--			for i = 1, 5 do
+--				local label = rewardFrame:WaitForChild("Frame"):WaitForChild("Day" .. i)
+--				local isCur, isAwarded = i == data.Tier, i < data.Tier
+--				label.Overlay.Visible = isAwarded
+--				label.SelectedFrame.Visible = isCur
+--				if not isCur or not Color3.fromRGB(255, 222, 155) then
+--					label.ImageColor3 = Color3.fromRGB(220, 220, 220)
+--					if isPremium then
+--						local amount, type = label:WaitForChild("PriceLabel").Text:match("(%d+) (.+)")
+--						label.PriceLabel.Text = tostring(tonumber(amount) * 2) .. " " .. type
+--					end
+--					if isCur then
+--						runService:BindToRenderStep("DailyRewardUpdate", 10000, function()
+--							label.SelectedFrame.ImageTransparency = 0.25 + math.sin(tick() * 4) * 0.5
+--						end)
+--					end
+--				end
+--			end
+
+--			rewardFrame.Visible = true
+--			rewardFrame:WaitForChild("Overlay").BackgroundTransparency = 1
+--			rewardFrame.Position = UDim2.new(0.5, -rewardFrame.AbsoluteSize.X * 0.5, 1, 0)
+--			rewardFrame:TweenPosition(UDim2.new(0.5, -rewardFrame.AbsoluteSize.X * 0.5, 0.5, -rewardFrame.AbsoluteSize.Y * 0.5), "In", "Sine", fadeTime)
+
+--			interpolate(fadeTime, "In", "Quad", function(t)
+--				rewardFrame:WaitForChild("Overlay").BackgroundTransparency = 1 - 0.5 * t
+--			end, true)
+
+--			claimButton.MouseButton1Down:wait()
+--			soundHandler:Play("MoneyEarned")
+--			rewardFrame:TweenPosition(UDim2.new(0.5, -rewardFrame.AbsoluteSize.X * 0.5, 1, 0), "Out", "Sine", fadeTime, true, function()
+--				rewardFrame.Visible = false
+--			end)
+
+--			interpolate(fadeTime, "In", "Quad", function(t)
+--				rewardFrame:WaitForChild("Overlay").BackgroundTransparency = 0.5 + 0.5 * t
+--			end)
+
+--			runService:UnbindFromRenderStep("DailyRewardUpdate")
+--			return true
+--		end)
+--	end)
+--	
+--	return true
+--end)
+
+dataManager:HookFunction("LoadingFailedPrompt", function(data)
+	local objects = ""
+	for type, amount in pairs(data.Data) do
+		objects = objects .. tostring(type) .. ": " .. tostring(amount) .. "\n"
+	end
+	return GUIHandler:ConfirmBox("Unable to load " .. data.Objects .. " object" .. (data.Objects > 1 and "s" or "") .. "!\n\n" .. objects .. "\nDo you want to continue anyway? These objects will be permanently destroyed!", "Loading Failed")
+end)
+
+return module
