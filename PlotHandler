@@ -1,0 +1,175 @@
+local module = {}
+local Players = game:GetService("Players")
+local ReplicatedStorage = game:GetService("ReplicatedStorage")
+
+local Plots = workspace:WaitForChild("Plots")
+local Stats = workspace:WaitForChild("Stats")
+
+local RepModules = ReplicatedStorage:WaitForChild("Modules")
+local GetTarget = require(RepModules:WaitForChild("GetTarget"))
+local GroundHandler = require(RepModules:WaitForChild("GroundHandler"))
+local Items = require(RepModules:WaitForChild("Items"))
+
+local GridSize = GroundHandler:GetGridSize()
+local LocalPlayer = Players.LocalPlayer
+
+-- Get empty/owned/all plots
+function module:GetPlots(plotState)
+	local retTable = {}
+	for _, plot in pairs(Plots:GetChildren()) do
+		if (plotState == "Empty" and plot.Name == "Plot") or
+			(plotState == "Owned" and plot.Name ~= "Plot") or
+			(plotState == nil) then
+			table.insert(retTable, plot)
+		end
+	end
+	return retTable
+end
+
+-- Get the plot assigned to a player
+function module:GetPlot(plr)
+	return Plots:WaitForChild("Plot_" .. game.Players.LocalPlayer.Name)
+end
+
+-- Get the player who owns a plot
+function module:GetPlayer(plot)
+	return Players:FindFirstChild(tostring(plot):sub(6))
+end
+
+-- Get spawn CFrame of a plot
+function module:GetPlotSpawn(name)
+	local foundPlot = (type(name) == "string" and module:GetPlot(name)) or name
+	if foundPlot then
+		return foundPlot:WaitForChild("Spawn").CFrame + Vector3.new(0, 3, 0)
+	end
+end
+
+-- Check if a point is on a plot
+function module:IsPointOnPlot(plot, point, offset)
+	offset = tonumber(offset) or 0
+	local ground = plot:WaitForChild("Ground")
+	local size = ground.Size
+	local relativePos = ground.CFrame:Inverse() * point
+
+	return (relativePos.X < size.X * 0.5 + offset and relativePos.X > -size.X * 0.5 - offset and
+		relativePos.Z < size.Z * 0.5 + offset and relativePos.Z > -size.Z * 0.5 - offset and
+		relativePos.Y > -10 and relativePos.Y < 50)
+end
+
+-- Check if a player is standing on a plot
+function module:IsOnPlot(plot, plr)
+	if plot and plr and plr.Character then
+		local hrp = plr.Character:FindFirstChild("HumanoidRootPart")
+		if hrp then
+			return module:IsPointOnPlot(plot, hrp.Position)
+		end
+	end
+end
+
+-- Get a plot based on a model's ancestry
+function module:GetPlotFromModel(model)
+	for _, plot in pairs(Plots:GetChildren()) do
+		if model:IsDescendantOf(plot) then
+			return plot
+		end
+	end
+	for _, plr in pairs(Players:GetPlayers()) do
+		if model:IsDescendantOf(plr.Character) then
+			return module:GetPlot(plr)
+		end
+	end
+end
+
+-- Validate if a plot name is unique and usable
+function module:CheckPlotName(name, plr)
+	return #name > 0 and name:match("%S") and not Stats:WaitForChild(tostring(plr)):FindFirstChild(name, true)
+end
+
+function module:GetClosestPlot(point, offset)
+	local curPlot, curDistance = nil, math.huge
+	for _, plot in pairs(Plots:GetChildren()) do
+		if plot:IsA("Model") and plot.PrimaryPart then
+			local pos = plot.PrimaryPart.Position
+			local dist = (point - pos).Magnitude
+			if (not curPlot or dist < curDistance) and (not offset or module:IsPointOnPlot(plot, point, offset)) then
+				curPlot, curDistance = plot, dist
+			end
+		elseif plot:IsA("BasePart") then
+			local pos = plot.Position
+			local dist = (point - pos).Magnitude
+			if (not curPlot or dist < curDistance) and (not offset or module:IsPointOnPlot(plot, point, offset)) then
+				curPlot, curDistance = plot, dist
+			end
+		end
+	end
+	return curPlot
+end
+
+
+
+-- Get an object's value (cost, area, etc.)
+function module:GetObjectValue(plr, target, ignoreBS)
+	local plot = module:GetPlot(plr)
+	if not (plr and target and plot and target:IsDescendantOf(plot)) then return end
+
+	local object, objectType = GetTarget(target, plr)
+
+	if objectType == "Floor" then
+		return math.ceil(object:WaitForChild("FloorArea").Value * 3)
+	elseif objectType == "Roof" then
+		local itemData = Items:GetItem(object.Name)
+		if itemData then
+			return math.ceil(object:WaitForChild("RoofArea").Value * itemData.Price)
+		end
+	elseif objectType == "RectangularPath" then
+		return math.floor(object.SizeBox.Size.X / GridSize * (object.SizeBox.Size.Z / GridSize) * 3)
+	elseif objectType == "Pool" then
+		return math.floor(object.HitBox.Size.X / GridSize) * math.floor(object.HitBox.Size.Z / GridSize) * 500
+	elseif objectType == "Wall" or objectType == "Path" then
+		local size = object:WaitForChild("SizeBox").Size.Z
+		return math.ceil(size / 5 * (objectType == "Wall" and 8 or 3))
+	elseif objectType == "Fence" then
+		local size = object:WaitForChild("SizeBox").Size.Z
+		local itemData = Items:GetItem(object.Name, "Fences")
+		if itemData then
+			return math.ceil(size / 5) * itemData.Price
+		end
+	elseif object then
+		local itemData = Items:GetItem(object.Name)
+		if itemData and (itemData.Hidden or not itemData.Price) then
+			return 0
+		elseif itemData and not (ignoreBS and itemData.BSPrice) then
+			return math.ceil(itemData.Price or 0)
+		end
+	end
+	return 0
+end
+
+-- Handle GotPlot BindableEvent on client
+if LocalPlayer then
+	local gotPlot = Instance.new("BindableEvent")
+	gotPlot.Name = "GotPlot"
+	gotPlot.Parent = script
+	module.GotPlot = gotPlot.Event
+
+	local function monitorPlot(plot)
+		local function onNameChanged()
+			if module:GetPlot() == plot then
+				gotPlot:Fire(plot)
+			end
+		end
+		onNameChanged()
+		plot.Changed:Connect(function(prop)
+			if prop == "Name" then
+				onNameChanged()
+			end
+		end)
+	end
+
+	for _, plot in pairs(Plots:GetChildren()) do
+		monitorPlot(plot)
+	end
+	Plots.ChildAdded:Connect(monitorPlot)
+end
+
+return module
