@@ -1,0 +1,2306 @@
+-- params : ...
+
+local module = {}
+local players = game:GetService("Players")
+local localPlayer = players.LocalPlayer
+local load = function(module)
+
+	local loaded = nil
+	spawn(function()
+
+		wait(1)
+		assert(loaded, "Unable to load " .. tostring(module and module:GetFullName() or module))
+	end
+	)
+	loaded = require(module)
+	return loaded
+end
+
+local marketplaceService = game:GetService("MarketplaceService")
+local plots = workspace:WaitForChild("Plots")
+local repStorage = game:GetService("ReplicatedStorage")
+local modules = repStorage:WaitForChild("Modules")
+local attachHandler = load(modules:WaitForChild("AttachHandler"))
+local animationHandler = load(modules:WaitForChild("AttachHandler"))
+local vehicleHandler = load(modules:WaitForChild("VehicleHandler"))
+local dataManager = load(modules:WaitForChild("DataManager"))
+local foodData = load(modules:WaitForChild("FoodData"))
+local equipmentHandler = load(modules:WaitForChild("EquipmentHandler"))
+local permissionHandler = load(modules:WaitForChild("PermissionHandler"))
+local plotHandler = load(modules:WaitForChild("PlotHandler"))
+local triangulate = load(modules:WaitForChild("Triangulate"))
+local googleAnalytics = load(modules:WaitForChild("GoogleAnalytics"))
+local items = load(modules:WaitForChild("Items"))
+local utils = modules
+local textModule = load(modules:WaitForChild("TextModule"))
+local localModules = {}
+if localPlayer then
+	local GUI = localPlayer:WaitForChild("PlayerGui")
+	do
+		local modules = GUI:WaitForChild("Modules")
+		spawn(function()
+
+			for _,name in pairs({"GUIHandler", "ClientStats", "ProductPurchaser", "CameraHandler", "CookingHandler", "StorageHandler", "PlaylistHandler", "Hotbar", "HouseHandler"}) do
+				localModules[name] = load(modules:WaitForChild(name))
+			end
+		end
+		)
+	end
+else
+	do
+		do
+			local modules = game:GetService("ServerStorage"):WaitForChild("Modules")
+			spawn(function()
+
+				for _,name in pairs({"1", "2", "3"}) do
+					localModules[name] = load(modules:WaitForChild(name))
+				end
+			end
+			)
+			module.GetInteractionType = function(self, object)
+
+				do return (not object or (not object:IsA("Player") or not "Player") and (not object:findFirstChild("InteractionType") or not object.InteractionType.Value) and (object:findFirstChild("Type") and object.Type.Value)) or nil end
+			end
+
+			module.IndexData = function(self, data, path)
+
+				if not data then
+					return 
+				end
+				local curData = data
+				local curIndex = ""
+				local curText = nil
+				local curPermission = 0
+				for index in string.gmatch(path, "%d+") do
+					curIndex = index
+					local newData = curData[tonumber(index)]
+					if type(newData) == "function" then
+						local text, permission, foundData = newData()
+						if foundData then
+							curData = foundData
+							curText = text
+							curPermission = permission
+						else
+							break
+						end
+					else
+						break
+					end
+				end
+				do
+					return curData, curIndex, curText, curPermission
+				end
+			end
+
+			local takeAnimation = function(plr)
+
+				local animation = animationHandler:PlayAnimation(plr.Character, "TakeItem")
+				delay(animation.Fade, function()
+
+					animationHandler:StopAnimation(plr.Character, animation.Name)
+				end
+				)
+			end
+
+			local buyItem = function(plr, object, price)
+
+				if price <= localModules.StatHandler:GetStat(plr, "Money") then
+					local model = equipmentHandler:EquipItem(plr, object)
+					if model then
+						localModules.StatHandler:ChangeStat(plr, "Money", -price)
+					end
+				end
+			end
+
+			module.GetData = function(self, object, player, menu)
+
+				if object then
+					local type = module:GetInteractionType(object)
+					do
+						if type == "Default" then
+							return {function()
+
+								return "Test", 0, function()
+
+									print("Hello World")
+									return "Close"
+								end
+
+							end
+							, function()
+
+								if game.Lighting.Outlines then
+									return "Disable Outlines", 0, function()
+
+										game.Lighting.Outlines = false
+										return "Update"
+									end
+									, {Color = Color3.new(0.33333333333333, 1, 0)}
+								else
+									return "Enable Outlines", 0, function()
+
+										game.Lighting.Outlines = true
+										return "Update"
+									end
+									, {Color = Color3.new(1, 0, 0)}
+								end
+							end
+							, function()
+
+								local data = {}
+								for i = 1, math.random(8, 30) do
+									do
+										table.insert(data, function()
+
+											return "Option" .. tostring(i):rep(math.random(10)), 0, function()
+
+												print("Option" .. i)
+											end
+
+										end
+										)
+									end
+								end
+								return "Do stuff...", 0, data
+							end
+							}
+						else
+							if type == "Lighting" then
+								local data = object:WaitForChild("ObjectData")
+								do
+									return {function()
+
+										return "Switch " .. (data.IsOn.Value and "Off" or "On"), 1, function(isServer)
+
+											data.IsOn.Value = not data.IsOn.Value
+											if not isServer then
+												object.PrimaryPart:WaitForChild("Click"):Play()
+												takeAnimation(player)
+												return "Update"
+											end
+										end
+
+									end
+									}
+								end
+							else
+								do
+									if type == "LightSwitch" then
+										local plot = plotHandler:GetPlotFromModel(object)
+										do
+											local foundLights = {}
+											local updateLights = function()
+
+												if object and object.Parent and object.Parent.Parent then
+													local sizeBox = object.Parent.Parent:findFirstChild("SizeBox")
+												end
+											end
+
+											return {function()
+
+												if #foundLights == 0 then
+													updateLights()
+												end
+												if #foundLights > 0 then
+													local isOn = foundLights[1]:WaitForChild("ObjectData"):WaitForChild("IsOn").Value
+													do
+														return "Switch " .. (isOn and "Off" or "On"), 1, function(isServer)
+
+															for _,light in pairs(foundLights) do
+																light:WaitForChild("ObjectData"):WaitForChild("IsOn").Value = not isOn
+															end
+															if not isServer then
+																object.PrimaryPart:WaitForChild("Click"):Play()
+																takeAnimation(player)
+																return "Update"
+															end
+														end
+
+													end
+												end
+											end
+											}
+										end
+									else
+										do
+											if type == "TV" then
+												local data = object:WaitForChild("ObjectData")
+												do
+													return {function()
+
+														local isOn = data.IsOn.Value
+														return "Turn " .. (isOn and "Off" or "On"), 1, function(isServer)
+
+															data.IsOn.Value = not isOn
+															if not isServer then
+																takeAnimation(player)
+																return "Update"
+															end
+														end
+
+													end
+													, function()
+
+														if data.IsOn.Value then
+															return "Change Channel", 1, function(isServer, clientData)
+
+																if not clientData or not clientData.Channel then
+																	data.Channel.Value = not isServer or 1
+																	data.Channel.Value = data.Channel.Value + 1
+																	if #data.TVGui:GetChildren() < data.Channel.Value then
+																		data.Channel.Value = 1
+																	end
+																	takeAnimation(player)
+																	do return "Update", {Channel = data.Channel.Value} end
+																end
+															end
+
+														end
+													end
+													, function()
+
+														if data.IsOn.Value then
+															return "Watch", 1, function(isServer)
+
+																if isServer then
+																	local itemData = items:GetItem(object.Name)
+																	if itemData then
+																		local attachData = attachHandler:AttachArea(object, player.Character, 30, 999, true, true)
+																		if not itemData.Stats or not itemData.Stats.Fun then
+																			local status = localModules.StatHandler:AddStatus(player, {Name = "Entertaining Television", Color = "Glad", Icon = itemData.Icon, Description = "A great way to spend time, have fun and maybe even learn something."}, {Fun = 1.5 + (not attachData or 0) * 0.2, Hygiene = -0.3, Energy = -0.4})
+																			do
+																				animationHandler:SetFocus(player.Character, object:findFirstChild("Screen"))
+																				local detached, turnedOff = nil, nil
+																				local stop = function()
+
+																					animationHandler:SetFocus(player.Character, nil)
+																					status:Remove()
+																					detached:disconnect()
+																					turnedOff:disconnect()
+																				end
+
+																				detached = attachData.Detached:connect(stop)
+																				turnedOff = data.IsOn.Changed:connect(stop)
+																			end
+																			do
+																				do return "Close" end
+																			end
+																		end
+																	end
+																end
+															end
+
+														end
+													end
+													}
+												end
+											else
+												do
+													if type == "TVRemote" then
+														local tv, tvDistance = nil, nil
+														do
+															local checkTV = function(obj)
+
+																local intType = obj:findFirstChild("InteractionType")
+																if intType and intType.Value == "TV" then
+																	local distance = obj.PrimaryPart.Position - object.PrimaryPart.Position.magnitude
+																	if not tv or distance < tvDistance then
+																		tv = obj
+																	end
+																else
+																	do
+																		local itemHolder = obj:findFirstChild("ItemHolder")
+																		if itemHolder then
+																			for _,newObj in pairs(itemHolder:GetChildren()) do
+																				print(newObj)
+																			end
+																		end
+																	end
+																end
+															end
+
+															local plot = plotHandler:GetPlotFromModel(object)
+															local house = plot:WaitForChild("House")
+															for _,catModel in pairs(house:GetChildren()) do
+																for _,obj in pairs(catModel:GetChildren()) do
+																	checkTV(obj)
+																end
+															end
+															if tv then
+																return module:GetData(tv, player)
+															else
+																do
+																	do return {function()
+
+																			return "No nearby TV!", 0, function(isServer)
+
+																				return "Close"
+																			end
+
+																		end
+																		} end
+																	--   ERROR at PC125: LeaveBlock: unexpected jumping out IF_ELSE_STMT
+
+																	--   ERROR at PC125: LeaveBlock: unexpected jumping out IF_STMT
+
+																end
+															end
+														end
+													else
+														if type == "Computer" then
+															local data = object:WaitForChild("ObjectData")
+															local action = data:WaitForChild("Action")
+															local itemHolder = object.Parent
+															local foundChair = nil
+															for _,obj in pairs(itemHolder:GetChildren()) do
+																if obj ~= object and obj:findFirstChild("Type") and obj.Type.Value == "Chairs" and obj:findFirstChild("AttachPos") then
+																	local localPos = object.PrimaryPart.CFrame:inverse() * obj.AttachPos.CFrame
+																	if math.abs(localPos.X) < 0.5 and localPos.Z < 0 then
+																		foundChair = obj
+																		break
+																	end
+																end
+															end
+															do
+																if foundChair then
+																	local attachChair = function()
+
+																		attachHandler:Detach(player.Character)
+																		local chairInteractions = module:GetData(foundChair, player)
+																		for _,interactionFunction in pairs(chairInteractions) do
+																			local name, _, clickData = interactionFunction()
+																			if name == "Sit" then
+																				clickData(true)
+																			end
+																		end
+																	end
+
+																	local use = function(animation, effectName, statData, statChanges, skillChanges)
+
+																		equipmentHandler:UnequipItem(player)
+																		if animation then
+																			spawn(function()
+
+																				animationHandler:StopAnimation(player.Character, "Sit")
+																				animationHandler:PlayAnimation(player.Character, animation)
+																			end
+																			)
+																		end
+																		action.Value = tostring(effectName)
+																		if statChanges then
+																			local status = localModules.StatHandler:AddStatus(player, statData, statChanges, skillChanges)
+																			attachChair()
+																			status:Remove()
+																		else
+																			do
+																				attachChair()
+																				if effectName and tostring(effectName) == action.Value then
+																					action.Value = ""
+																				end
+																				if animation then
+																					delay(0.05, function()
+
+																						animationHandler:StopAnimation(player.Character, animation)
+																					end
+																					)
+																				end
+																			end
+																		end
+																	end
+
+																	return {function()
+
+																		local games = {}
+																		for _,game in pairs({"Pong", "Phantom Forces", "Bloxborne"}) do
+																			do
+																				table.insert(games, function()
+
+																					return game, 1, function(isServer)
+
+																						if isServer then
+																							local itemData = items:GetItem(object.Name)
+																							if not itemData.Stats or not itemData.Stats.Fun then
+																								do
+																									use("PlayComputer", game, {Name = "1337 G4m3ing", Color = "Glad", Icon = itemData.Icon, Description = "Like a true pro, you are quick-scoping noobs, pwning everyone and being awesome at the same time."}, {Fun = 1.5 + (not itemData or 0) * 0.2, Hygiene = -0.3, Energy = -0.4}, {Gaming = 0.8})
+																									do return "Close" end
+																								end
+																							end
+																						end
+																					end
+
+																				end
+																				)
+																			end
+																		end
+																		return "Play...", 1, games
+																	end
+																	, function()
+
+																		return "Read News", 1, function(isServer)
+
+																			if isServer then
+																				local itemData = items:GetItem(object.Name)
+																				if not itemData.Stats or not itemData.Stats.Fun then
+																					do
+																						use("UseComputer", "News", {Name = "Keeping up with the news", Color = "Glad", Icon = itemData.Icon, Description = "You\'ve got to know what\'s happening around you."}, {Fun = 0.4 + (not itemData or 0) * 0.05, Hygiene = -0.3, Energy = -0.4}, {Intelligence = 0.2})
+																						do return "Close" end
+																					end
+																				end
+																			end
+																		end
+
+																	end
+																	, function()
+
+																		return "Watch YouBlock", 1, function(isServer)
+
+																			if isServer then
+																				local itemData = items:GetItem(object.Name)
+																				if not itemData.Stats or not itemData.Stats.Fun then
+																					do
+																						use(nil, "YouBlock", {Name = "YouBlocker", Color = "Glad", Icon = itemData.Icon, Description = "Just like most people today, you browse YouBlock looking for fun videos."}, {Fun = 1.5 + (not itemData or 0) * 0.2, Hygiene = -0.3, Energy = -0.4})
+																						do return "Close" end
+																					end
+																				end
+																			end
+																		end
+
+																	end
+																	, function()
+
+																		return "Write Book", 1, function(isServer)
+
+																			if isServer then
+																				local itemData = items:GetItem(object.Name)
+																				if itemData then
+																					use("UseComputer", "WriteBook", {Name = "Apprentice Author", Color = "Glad", Icon = itemData.Icon, Description = "The book you\'re now writing will become a best-seller one day!"}, {Fun = -0.2, Energy = -0.4}, {Writing = 0.7})
+																				end
+																			else
+																				do
+																					do return "Close" end
+																				end
+																			end
+																		end
+
+																	end
+																	}
+																else
+																	do
+																		do
+																			do return {function()
+
+																					return "Chair required to use!", 0, function(isServer)
+
+																						return "Close"
+																					end
+
+																				end
+																				} end
+																			if type == "Radio" then
+																				local data = object:WaitForChild("ObjectData")
+																				return {function()
+
+																					return "Use", 2, function(isServer)
+
+																						if not isServer then
+																							spawn(function()
+
+																								localModules.PlaylistHandler:ShowPlaylistFrame(object)
+																							end
+																							)
+																							return "Close"
+																						end
+																					end
+
+																				end
+																				}
+																			else
+																				do
+																					if type == "Doors" then
+																						local data = object:WaitForChild("ObjectData")
+																						return {function()
+
+																							local isOpen = data.IsOpen.Value
+																							return isOpen and "Close" or "Open", 1, function(isServer)
+
+																								data.IsOpen.Value = not isOpen
+																								if not isServer then
+																									takeAnimation(player)
+																									return "Close"
+																								end
+																							end
+
+																						end
+																						}
+																					else
+																						do
+																							if type == "Chairs" or type == "Comfort" or type == "Stool" or type == "FerrisWheelSeat" or type == "SunChair" then
+																								return {function()
+
+																									return "Sit", 1, function(isServer)
+
+																										if isServer then
+																											local itemData = items:GetItem(object.Name)
+																											if type == "FerrisWheelSeat" and object.PrimaryPart then
+																												attachHandler:MovePlayer(player, object.PrimaryPart.CFrame * CFrame.new(0, 3, 0))
+																											end
+																											local attachData = attachHandler:Attach(object, player.Character, true)
+																											if attachData then
+																												if object.Name:match("Rocking Chair") then
+																													animationHandler:PlayAnimation(player.Character, "RockingChair")
+																													animationHandler:PlayObjectAnimation(attachData.Model, "RockingChair")
+																												else
+																													if type == "SunChair" and object.Name ~= "Deck Chair" then
+																														animationHandler:PlayAnimation(player.Character, "SitSunChair")
+																													else
+																														animationHandler:PlayAnimation(player.Character, type == "Stool" and "SitStool" or "Sit")
+																													end
+																												end
+																												local status = nil
+																												if type == "FerrisWheelSeat" then
+																													status = localModules.StatHandler:AddStatus(player, {Name = "Ferris Wheel", Color = "Glad", Icon = 479032025, Description = "This is fun!"}, {Energy = 1, Fun = 2})
+																												else
+																													--   ERROR at PC129: Unhandled construct in 'MakeBoolean' P3
+
+																													status = localModules.StatHandler:AddStatus(player, {Name = "Relaxing in the sun", Color = "Glad", Icon = type ~= "SunChair" or "", Description = "Ahh, what could be better than just laying in the sun?"}, {Energy = 0.5 + (((itemData and itemData.Icon) or itemData) and itemData.Stats.Comfort or 0) * 0.2})
+																												end
+																												status = localModules.StatHandler:AddStatus(player, {Name = "Comfy", Color = "Glad", Icon = itemData and itemData.Icon or "", Description = "Taking a quick rest can sometimes be quite nice."}, {Energy = 0.5 + (itemData and itemData.Stats and itemData.Stats.Comfort or 0) * 0.2})
+																												attachData.Detached:wait()
+																												status:Remove()
+																												if object.Name:match("Rocking Chair") then
+																													animationHandler:StopAnimation(player.Character, "RockingChair")
+																													animationHandler:StopObjectAnimation(attachData.Model)
+																												else
+																													if type == "SunChair" and object.Name ~= "Deck Chair" then
+																														animationHandler:StopAnimation(player.Character, "SitSunChair")
+																													else
+																														animationHandler:StopAnimation(player.Character, type == "Stool" and "SitStool" or "Sit")
+																													end
+																												end
+																											end
+																										else
+																											do
+																												do return "Close" end
+																											end
+																										end
+																									end
+
+																								end
+																								}
+																							else
+																								if type == "Beds" then
+																									return {function()
+
+																										return "Sleep", 1, function(isServer)
+
+																											if isServer then
+																												local itemData = items:GetItem(object.Name, type)
+																												if itemData then
+																													local attachData = attachHandler:Attach(object, player.Character)
+																													if attachData then
+																														equipmentHandler:UnequipItem(player)
+																														animationHandler:PlayAnimation(player.Character, "Sleep")
+																														local status = localModules.StatHandler:AddStatus(player, {Name = "Lost in Dreams", Color = "Glad", Icon = itemData.Icon, Description = "Sleeping like a log."}, {Energy = 2 + (itemData.Stats and itemData.Stats.Comfort or 0) * 0.3})
+																														attachData.Detached:wait()
+																														status:Remove()
+																														animationHandler:StopAnimation(player.Character, "Sleep")
+																													end
+																												end
+																											else
+																												do
+																													do return "Close" end
+																												end
+																											end
+																										end
+
+																									end
+																									}
+																								else
+																									if type == "Toilet" then
+																										return {function()
+
+																											return "Use", 1, function(isServer)
+
+																												if isServer then
+																													local itemData = items:GetItem(object.Name)
+																													if itemData then
+																														local attachData = attachHandler:Attach(object, player.Character, true)
+																														if attachData then
+																															animationHandler:PlayAnimation(player.Character, "Sit")
+																															local status = localModules.StatHandler:AddStatus(player, {Name = "Ahh...", Color = "Great", Icon = itemData.Icon, Description = "Guess it went down the toilet."}, {Hygiene = 2 + (itemData.Stats and itemData.Stats.Hygiene or 0) * 0.2, Energy = (itemData.Stats and itemData.Stats.Comfort or 0) * 0.1})
+																															do
+																																attachData.Detached:wait()
+																																status:Remove()
+																																local flushSound = object.PrimaryPart:WaitForChild("Flush")
+																																flushSound:Play()
+																																delay(4, function()
+
+																																	flushSound:Stop()
+																																end
+																																)
+																																animationHandler:StopAnimation(player.Character, "Sit")
+																															end
+																														end
+																													end
+																												else
+																													do
+																														do return "Close" end
+																													end
+																												end
+																											end
+
+																										end
+																										}
+																									else
+																										if type == "Bathtub" then
+																											return {function()
+
+																												return "Bathe", 1, function(isServer)
+
+																													if isServer then
+																														local itemData = items:GetItem(object.Name)
+																														if itemData then
+																															local attachData = attachHandler:Attach(object, player.Character)
+																															if attachData then
+																																equipmentHandler:UnequipItem(player)
+																																animationHandler:PlayAnimation(player.Character, "Bath")
+																																local status = localModules.StatHandler:AddStatus(player, {Name = "Relaxing Bath", Color = "Glad", Icon = itemData.Icon, Description = "Nothing beats a warm and relaxing afternoon bath."}, {Hygiene = 2 + (itemData.Stats and itemData.Stats.Hygiene or 0) * 0.25, Energy = 0.4 + (itemData.Stats and itemData.Stats.Comfort or 0) * 0.15})
+																																attachData.Detached:wait()
+																																status:Remove()
+																																animationHandler:StopAnimation(player.Character, "Bath")
+																															end
+																														end
+																													else
+																														do
+																															do return "Close" end
+																														end
+																													end
+																												end
+
+																											end
+																											}
+																										else
+																											if type == "Sink" then
+																												local data = object:WaitForChild("ObjectData")
+																												return {function()
+
+																													return "Wash Hands", 1, function(isServer)
+
+																														if isServer then
+																															local itemData = items:GetItem(object.Name)
+																															if itemData then
+																																if not object:findFirstChild("AttachPos") or not object then
+																																	local attachData = attachHandler:Attach(object.Parent.Parent, player.Character)
+																																	if attachData then
+																																		local waterSound = object.PrimaryPart:WaitForChild("Water")
+																																		waterSound:Play()
+																																		equipmentHandler:UnequipItem(player)
+																																		animationHandler:PlayAnimation(player.Character, "WashHands")
+																																		local status = localModules.StatHandler:AddStatus(player, {Name = "Clean as a Whistle", Color = "Great", Icon = itemData.Icon, Description = "It\'s important to clean your hands properly."}, {Hygiene = 2 + (itemData.Stats and itemData.Stats.Hygiene or 0) * 0.2})
+																																		data.IsOn.Value = true
+																																		attachData.Detached:wait()
+																																		waterSound:Stop()
+																																		data.IsOn.Value = false
+																																		status:Remove()
+																																		animationHandler:StopAnimation(player.Character, "WashHands")
+																																	end
+																																	do
+																																		do return "Close" end
+																																	end
+																																end
+																															end
+																														end
+																													end
+
+																												end
+																												, function()
+
+																													return "Brush Teeth", 1, function(isServer)
+
+																														if isServer then
+																															local itemData = items:GetItem(object.Name)
+																															if itemData then
+																																if not object:findFirstChild("AttachPos") or not object then
+																																	local attachData = attachHandler:Attach(object.Parent.Parent, player.Character)
+																																	if attachData then
+																																		local waterSound = object.PrimaryPart:WaitForChild("Water")
+																																		waterSound:Play()
+																																		equipmentHandler:UnequipItem(player)
+																																		animationHandler:PlayAnimation(player.Character, "BrushTeeth")
+																																		local status = localModules.StatHandler:AddStatus(player, {Name = "Shining Teeth", Color = "Great", Icon = itemData.Icon, Description = "With those teeth you might blind others."}, {Hygiene = 2 + (itemData.Stats and itemData.Stats.Hygiene or 0) * 0.2})
+																																		data.IsOn.Value = true
+																																		attachData.Detached:wait()
+																																		data.IsOn.Value = false
+																																		status:Remove()
+																																		waterSound:Stop()
+																																		animationHandler:StopAnimation(player.Character, "BrushTeeth")
+																																	end
+																																	do
+																																		do return "Close" end
+																																	end
+																																end
+																															end
+																														end
+																													end
+
+																												end
+																												}
+																											else
+																												do
+																													if type == "Fridge" then
+																														local equipped = equipmentHandler:GetEquipped(player)
+																														return {function()
+
+																															local plot = plotHandler:GetPlotFromModel(object)
+																															local plotOwner = plotHandler:GetPlayer(plot)
+																															if plot and plotOwner then
+																																return "View Content", 2, function(isServer)
+
+																																	if isServer then
+																																		local attachData = attachHandler:Attach(object, player.Character)
+																																		if attachData then
+																																			equipmentHandler:UnequipItem(player)
+																																			animationHandler:PlayAnimation(player.Character, "UseFridge")
+																																			animationHandler:PlayObjectAnimation(attachData.Model, "UseFridge")
+																																			local data = dataManager:WaitEvent("TakeFridgeContent", player)
+																																			attachData:Detach()
+																																			animationHandler:StopAnimation(player.Character, "UseFridge")
+																																			animationHandler:StopObjectAnimation(attachData.Model)
+																																			local itemData = items:GetItem(data.Name)
+																																			if itemData and plotOwner and localModules.StatHandler:RemoveFromInventory(plotOwner, itemData.Name, 1) then
+																																				local model = equipmentHandler:EquipItem(player, itemData.Name)
+																																				if model and itemData.Quantity then
+																																					local quantity = Instance.new("IntValue")
+																																					quantity.Name = "FoodQuantity"
+																																					quantity.Value = itemData.Quantity
+																																					quantity.Parent = model
+																																					foodData:UpdatePlate(model, quantity.Value)
+																																				end
+																																			end
+																																		end
+																																	else
+																																		do
+																																			if attachHandler:GetAttachPart(object, player.Character:WaitForChild("HumanoidRootPart").Position) then
+																																				spawn(function()
+
+																																					spawn(function()
+
+																																						localModules.StorageHandler:ShowStorageFrame("Fridge", plotOwner)
+																																					end
+																																					)
+																																					local selected = localModules.StorageHandler.StorageFrameClosed:wait()
+																																					dataManager:FireServer({Type = "TakeFridgeContent", Name = selected and selected.Name or nil})
+																																				end
+																																				)
+																																			end
+																																			do return "Close" end
+																																		end
+																																	end
+																																end
+
+																															end
+																														end
+																														, function()
+
+																															return "Take Ingredients", 1, function(isServer)
+
+																																if isServer then
+																																	local attachData = attachHandler:Attach(object, player.Character)
+																																	if attachData then
+																																		equipmentHandler:UnequipItem(player)
+																																		animationHandler:PlayAnimation(player.Character, "UseFridge")
+																																		animationHandler:PlayObjectAnimation(attachData.Model, "UseFridge")
+																																		local data = dataManager:WaitEvent("TakeIngredient", player)
+																																		attachData:Detach()
+																																		animationHandler:StopAnimation(player.Character, "UseFridge")
+																																		animationHandler:StopObjectAnimation(attachData.Model)
+																																		local thisFoodData = foodData.FoodIngredients[data.Name]
+																																		if thisFoodData and thisFoodData.Price <= localModules.StatHandler:GetStat(player, "Money") then
+																																			localModules.StatHandler:ChangeStat(player, "Money", -thisFoodData.Price)
+																																			local model = equipmentHandler:EquipItem(player, thisFoodData.EquipModel)
+																																			if model then
+																																				local food = Instance.new("StringValue")
+																																				food.Name = "FoodIngredient"
+																																				food.Value = thisFoodData.Name
+																																				food.Parent = model
+																																			end
+																																		end
+																																	end
+																																else
+																																	do
+																																		if attachHandler:GetAttachPart(object, player.Character:WaitForChild("HumanoidRootPart").Position) then
+																																			spawn(function()
+
+																																				spawn(function()
+
+																																					localModules.CookingHandler:ShowIngredientFrame()
+																																				end
+																																				)
+																																				local selected = localModules.CookingHandler.IngredientFrameClosed:wait()
+																																				dataManager:FireServer({Type = "TakeIngredient", Name = selected and selected.Name or nil})
+																																			end
+																																			)
+																																		end
+																																		do return "Close" end
+																																	end
+																																end
+																															end
+
+																														end
+																														, function()
+
+																															local foodData = items.Data.Food[tostring(equipped)]
+																															if not equipped:findFirstChild("FoodQuantity") or not equipped.FoodQuantity.Value then
+																																local item, quantity = tostring(object), not equipped or not foodData or nil
+																															end
+																															if (quantity and quantity == foodData.Quantity) or not quantity then
+																																return "Store " .. tostring(equipped), 2, function(isServer)
+
+																																	if isServer then
+																																		local plot = plotHandler:GetPlotFromModel(object)
+																																		if plot then
+																																			local plotOwner = plotHandler:GetPlayer(plot)
+																																			if plotOwner and equipmentHandler:UnequipItem(player, equipped) then
+																																				localModules.StatHandler:AddToInventory(plotOwner, foodData.Name, 1)
+																																			end
+																																		end
+																																	else
+																																		do
+																																			do return "Close" end
+																																		end
+																																	end
+																																end
+
+																															end
+																														end
+																														}
+																													else
+																														do
+																															if type == "Stove" or type == "Grill" then
+																																return {function()
+
+																																	local equipped = equipmentHandler:GetEquipped(player)
+																																	if equipped and equipped:findFirstChild("FoodIngredient") then
+																																		local ingredientData = foodData.FoodIngredients[equipped.FoodIngredient.Value]
+																																		do
+																																			if ingredientData and ingredientData.CookableAt[type] then
+																																				do
+																																					do return "Cook " .. tostring(ingredientData.Name), 1, function(isServer)
+
+																																							if isServer then
+																																								local attachData = attachHandler:Attach(object, player.Character)
+																																								do
+																																									do
+																																										if attachData then
+																																											if equipmentHandler:UnequipItem(player, equipped) then
+																																												local animData = animationHandler:PlayAnimation(player.Character, ingredientData.CookableAt[type])
+																																												do
+																																													animationHandler:PlayObjectAnimation(attachData.Model, ingredientData.CookableAt[type])
+																																													local isCooked = true
+																																													spawn(function()
+
+																																														animData.Animation.Stopped:wait()
+																																														if isCooked then
+																																															attachData:Detach()
+																																															localModules.StatHandler:IncreaseSkill(player, "Cooking", ingredientData.CookingExp or 0)
+																																															local model = equipmentHandler:EquipItem(player, ingredientData.Name)
+																																															local foodData = items.Data.Food[ingredientData.Name]
+																																															if foodData then
+																																																local quantity = Instance.new("IntValue")
+																																																quantity.Name = "FoodQuantity"
+																																																quantity.Value = foodData.Quantity or 1
+																																																quantity.Parent = model
+																																															else
+																																																do
+																																																	warn("No item data for " .. tostring(ingredientData.Name))
+																																																end
+																																															end
+																																														end
+																																													end
+																																													)
+																																													attachData.Detached:wait()
+																																													isCooked = false
+																																													animationHandler:StopAnimation(player.Character, ingredientData.CookableAt[type])
+																																													animationHandler:StopObjectAnimation(attachData.Model)
+																																												end
+																																											else
+																																												do
+																																													attachData:Detach()
+																																												end
+																																											end
+																																										end
+																																										do return "Close" end
+																																									end
+																																								end
+																																							end
+																																						end
+																																					end
+																																					--   ERROR at PC41: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+																																					--   ERROR at PC41: LeaveBlock: unexpected jumping out IF_STMT
+
+																																				end
+																																			end
+																																		end
+																																	end
+																																end
+																																}
+																															else
+																																if type == "Tables" or type == "Counters" then
+																																	local equipped = equipmentHandler:GetEquipped(player)
+																																	return {function()
+
+																																		if equipped and items.Data.Food[tostring(equipped)] then
+																																			local menuPos = nil
+																																			do
+																																				if menu then
+																																					menuPos = menu:GetPosition()
+																																					local target = menu.MouseTarget
+																																					local canPlace = false
+																																					if tostring(target) ~= "PlaceArea" then
+																																						if not equipped:findFirstChild("Plate") and not equipped:findFirstChild("Food") then
+																																							local placeObject = equipped:findFirstChild("Food1")
+																																						end
+																																						if placeObject then
+																																							local newTarget, newPos = workspace:FindPartOnRay(Ray.new(placeObject.Position, Vector3.new(0, -5, 0)), player.Character)
+																																							if newTarget:IsDescendantOf(object) then
+																																								target = newTarget
+																																								menuPos = newPos
+																																							end
+																																						end
+																																					end
+																																					do
+																																						if tostring(target) == "PlaceArea" then
+																																							local surface = partAlign:GetSurface(target, target.Position + Vector3.new(0, 1000, 0))
+																																							local pos = target.CFrame * CFrame.new(target.Size * 0.5 * Vector3.FromNormalId(surface))
+																																							if pos.Y - 0.05 <= menuPos.Y then
+																																								canPlace = true
+																																							end
+																																						end
+																																						do
+																																							do
+																																								if not canPlace then
+																																									return 
+																																								end
+																																								return "Place " .. tostring(equipped), 1, function(isServer, clientData)
+
+																																									if not equipped:findFirstChild("FoodQuantity") or not equipped.FoodQuantity.Value then
+																																										local item, quantity = tostring(equipped), not isServer or nil
+																																									end
+																																									if equipmentHandler:UnequipItem(player, equipped) then
+																																										local didPlace = false
+																																										local plot = plotHandler:GetPlotFromModel(object)
+																																										local root = player.Character:findFirstChild("HumanoidRootPart")
+																																										do
+																																											if plot and root then
+																																												local plotOwner = plotHandler:GetPlayer(plot)
+																																												if plotOwner then
+																																													didPlace = localModules.ObjectPlacer:PlaceObject(plotOwner, {Type = "PlaceObject", Name = item, Pos = clientData.Pos, Rot = math.pi * 0.5 - math.atan2(clientData.Pos.z - root.Position.z, clientData.Pos.x - root.Position.x), TargetModel = object}, true)
+																																												end
+																																											end
+																																											if not didPlace then
+																																												local model = equipmentHandler:EquipItem(player, item)
+																																												if quantity then
+																																													local quantityValue = Instance.new("IntValue")
+																																													quantityValue.Name = "FoodQuantity"
+																																													quantityValue.Value = quantity
+																																													quantityValue.Parent = model
+																																												end
+																																											else
+																																												do
+																																													do
+																																														if quantity then
+																																															didPlace:WaitForChild("ObjectData"):WaitForChild("FoodQuantity").Value = quantity
+																																														end
+																																														do return "Close", {Pos = menuPos} end
+																																													end
+																																												end
+																																											end
+																																										end
+																																									end
+																																								end
+
+																																							end
+																																						end
+																																					end
+																																				end
+																																			end
+																																		end
+																																	end
+																																	}
+																																else
+																																	do
+																																		if type == "Food" then
+																																			local objectData = object:findFirstChild("ObjectData")
+																																			local quantity = objectData and objectData:findFirstChild("FoodQuantity") and objectData.FoodQuantity or nil
+																																			local itemData = items:GetItem(object.Name)
+																																			return {function()
+
+																																				return "Take", 2, function(isServer)
+
+																																					if not objectData or not objectData:findFirstChild("FoodQuantity") or not objectData.FoodQuantity then
+																																						local item, quantity = tostring(object), not isServer or nil
+																																					end
+																																					local plot = plotHandler:GetPlotFromModel(object)
+																																					local plotOwner = plotHandler:GetPlayer(plot)
+																																					if localModules.ObjectPlacer:SellObject(plotOwner, object, true) then
+																																						local model = equipmentHandler:EquipItem(player, item)
+																																						if objectData and quantity then
+																																							local quantityValue = Instance.new("IntValue")
+																																							quantityValue.Name = "FoodQuantity"
+																																							quantityValue.Value = quantity.Value
+																																							quantityValue.Parent = model
+																																							foodData:UpdatePlate(model, quantity.Value)
+																																						end
+																																					end
+																																					do
+																																						do return "Close" end
+																																					end
+																																				end
+
+																																			end
+																																			, function()
+
+																																				if quantity and quantity.Value >= 1 and itemData.PortionItem then
+																																					return "Take Portion", 1, function(isServer)
+
+																																						if not objectData or not objectData:findFirstChild("FoodQuantity") or not objectData.FoodQuantity then
+																																							local item, quantity = tostring(object), not isServer or nil
+																																						end
+																																						local plot = plotHandler:GetPlotFromModel(object)
+																																						local plotOwner = plotHandler:GetPlayer(plot)
+																																						quantity.Value = quantity.Value - 1
+																																						if (quantity.Value < 1 and localModules.ObjectPlacer:SellObject(plotOwner, object, true)) or quantity.Value >= 1 then
+																																							local model = equipmentHandler:EquipItem(player, itemData.PortionItem)
+																																						else
+																																							do
+																																								do
+																																									quantity.Value = quantity.Value + 1
+																																									do return "Close" end
+																																								end
+																																							end
+																																						end
+																																					end
+
+																																				end
+																																			end
+																																			, function()
+
+																																				if itemData.CanEat then
+																																					if itemData.CanEat ~= true or not "Eat" then
+																																						do return itemData.CanEat, 1, function(isServer)
+
+																																								if isServer then
+																																									local item = tostring(object)
+																																									local plot = plotHandler:GetPlotFromModel(object)
+																																									local plotOwner = plotHandler:GetPlayer(plot)
+																																									if localModules.ObjectPlacer:SellObject(plotOwner, object, true) then
+																																										local model = equipmentHandler:EquipItem(player, item)
+																																										dataManager:FireLocal(player, {Type = "Eat", Item = model})
+																																									end
+																																								else
+																																									do
+																																										do return "Close" end
+																																									end
+																																								end
+																																							end
+																																						end
+																																					end
+																																				end
+																																			end
+																																			}
+																																		else
+																																			do
+																																				if object.Name == "Fruit Bowl" then
+																																					return {function()
+
+																																						return "Take Apple (2 $)", 1, function(isServer)
+
+																																							if isServer then
+																																								buyItem(player, "Apple", 2)
+																																							else
+																																								return "Close"
+																																							end
+																																						end
+
+																																					end
+																																					}
+																																				else
+																																					if type == "CoffeeMachine" then
+																																						return {function()
+
+																																							return "Make Coffee (3 $)", 1, function(isServer)
+
+																																								if isServer then
+																																									buyItem(player, "Coffee", 3)
+																																								else
+																																									return "Close"
+																																								end
+																																							end
+
+																																						end
+																																						}
+																																					else
+																																						if type == "IceCreamMachine" then
+																																							return {function()
+
+																																								return "Make Ice Cream (2 $)", 1, function(isServer)
+
+																																									if isServer then
+																																										buyItem(player, "Ice Cream", 2)
+																																									else
+																																										return "Close"
+																																									end
+																																								end
+
+																																							end
+																																							}
+																																						else
+																																							if type == "PunchingBag" then
+																																								return {function()
+
+																																									return "Punch", 1, function(isServer)
+
+																																										if isServer then
+																																											local itemData = items:GetItem(object.Name)
+																																											if itemData then
+																																												local attachData = attachHandler:Attach(object, player.Character)
+																																												if attachData then
+																																													equipmentHandler:UnequipItem(player)
+																																													animationHandler:PlayAnimation(player.Character, "Punching")
+																																													animationHandler:PlayObjectAnimation(attachData.Model, "Punching")
+																																													local status = localModules.StatHandler:AddStatus(player, {Name = "Just like Rocky", Color = "Energized", Icon = itemData.Icon, Description = "Training your punches is great, as long as you only hit the bag."}, {Fun = 0.5, Energy = -1, Hygiene = -1}, {Athletic = 0.85})
+																																													attachData.Detached:wait()
+																																													status:Remove()
+																																													animationHandler:StopAnimation(player.Character, "Punching")
+																																													animationHandler:StopObjectAnimation(attachData.Model)
+																																												end
+																																											end
+																																										else
+																																											do
+																																												do return "Close" end
+																																											end
+																																										end
+																																									end
+
+																																								end
+																																								}
+																																							else
+																																								if object.Name == "House of Cards" then
+																																									return {function()
+
+																																										if object:findFirstChild("Card") and object.Card.Anchored then
+																																											return "Touch", 1, function(isServer)
+
+																																												if isServer then
+																																													local itemData = items:GetItem(object.Name)
+																																													if itemData then
+																																														takeAnimation(player)
+																																														local status = localModules.StatHandler:AddStatus(player, {Name = "How evil!", Color = "Energized", Icon = itemData.Icon, Description = "You just couldn\'t resist, could you?."}, {Fun = 1})
+																																														local cards = {}
+																																														local originInv = object.PrimaryPart.CFrame:inverse()
+																																														for _,card in pairs(object:GetChildren()) do
+																																															if card.Name == "Card" and card.Anchored then
+																																																cards[card] = originInv * card.CFrame
+																																																card.Anchored = false
+																																															end
+																																														end
+																																														wait(20)
+																																														status:Remove()
+																																														local origin = object.PrimaryPart.CFrame
+																																														for card,pos in pairs(cards) do
+																																															if card and card.Parent == object then
+																																																card.Anchored = true
+																																																card.CFrame = origin * pos
+																																															end
+																																														end
+																																													end
+																																												else
+																																													do
+																																														do return "Close" end
+																																													end
+																																												end
+																																											end
+
+																																										end
+																																									end
+																																									}
+																																								else
+																																									if type == "Treadmill" then
+																																										return {function()
+
+																																											return "Walk", 1, function(isServer)
+
+																																												if isServer then
+																																													local itemData = items:GetItem(object.Name)
+																																													if itemData then
+																																														local attachData = attachHandler:Attach(object, player.Character, true)
+																																														if attachData then
+																																															equipmentHandler:UnequipItem(player)
+																																															animationHandler:PlayAnimation(player.Character, "TreadWalk")
+																																															local status = localModules.StatHandler:AddStatus(player, {Name = "Walking an Extra Mile", Color = "Energized", Icon = itemData.Icon, Description = "Walking is a great way to exercise."}, {Fun = 0.3, Energy = -0.4, Hygiene = -0.5}, {Athletic = 0.4})
+																																															attachData.Detached:wait()
+																																															status:Remove()
+																																															animationHandler:StopAnimation(player.Character, "TreadWalk")
+																																														end
+																																													end
+																																												else
+																																													do
+																																														do return "Close" end
+																																													end
+																																												end
+																																											end
+
+																																										end
+																																										, function()
+
+																																											return "Run", 1, function(isServer)
+
+																																												if isServer then
+																																													local itemData = items:GetItem(object.Name)
+																																													if itemData then
+																																														local attachData = attachHandler:Attach(object, player.Character, true)
+																																														if attachData then
+																																															equipmentHandler:UnequipItem(player)
+																																															animationHandler:PlayAnimation(player.Character, "TreadRun")
+																																															animationHandler:PlayObjectAnimation(attachData.Model, "TreadRun")
+																																															local status = localModules.StatHandler:AddStatus(player, {Name = "Like the Wind", Color = "Energized", Icon = itemData.Icon, Description = "Running fast like the wind."}, {Fun = 0.3, Energy = -1, Hygiene = -1}, {Athletic = 1})
+																																															attachData.Detached:wait()
+																																															status:Remove()
+																																															animationHandler:StopAnimation(player.Character, "TreadRun")
+																																															animationHandler:StopObjectAnimation(attachData.Model)
+																																														end
+																																													end
+																																												else
+																																													do
+																																														do return "Close" end
+																																													end
+																																												end
+																																											end
+
+																																										end
+																																										}
+																																									else
+																																										if type == "WeightBench" then
+																																											return {function()
+
+																																												return "Lift Weights", 1, function(isServer)
+
+																																													if isServer then
+																																														local itemData = items:GetItem(object.Name)
+																																														if itemData then
+																																															local attachData = attachHandler:Attach(object, player.Character)
+																																															if attachData then
+																																																equipmentHandler:UnequipItem(player)
+																																																animationHandler:PlayAnimation(player.Character, "LiftWeight")
+																																																animationHandler:PlayObjectAnimation(attachData.Model, "LiftWeight")
+																																																local status = localModules.StatHandler:AddStatus(player, {Name = "Building Muscles", Color = "Energized", Icon = itemData.Icon, Description = "If you continue like this, you\'ll look just like Parlus in no time."}, {Fun = 0.3, Energy = -0.6}, {Athletic = 0.55})
+																																																attachData.Detached:wait()
+																																																status:Remove()
+																																																animationHandler:StopAnimation(player.Character, "LiftWeight")
+																																																animationHandler:StopObjectAnimation(attachData.Model)
+																																															end
+																																														end
+																																													else
+																																														do
+																																															do return "Close" end
+																																														end
+																																													end
+																																												end
+
+																																											end
+																																											}
+																																										else
+																																											if type == "Piano" or type == "Drum" then
+																																												local data = {}
+																																												local objectData = object:WaitForChild("ObjectData")
+																																												local itemData = items:GetItem(object.Name)
+																																												if itemData then
+																																													for _,sound in pairs(objectData:WaitForChild("Tracks"):GetChildren()) do
+																																														table.insert(data, function()
+
+																																															if tostring(sound) ~= "Nothing" or not "Play" then
+																																																return "Play \'" .. tostring(sound) .. "\'", 1, function(isServer)
+
+																																																	if isServer then
+																																																		local attachData = attachHandler:Attach(object, player.Character)
+																																																		if attachData then
+																																																			equipmentHandler:UnequipItem(player)
+																																																			animationHandler:PlayAnimation(player.Character, "Play" .. type)
+																																																			objectData.CurrentTrack.Value = tostring(sound)
+																																																			local status = localModules.StatHandler:AddStatus(player, {Name = "Jamming", Color = "Glad", Icon = itemData.Icon, Description = "Creating musical masterpieces."}, {Fun = 1, Hygiene = -0.2, Energy = -0.6}, {Music = 0.8})
+																																																			attachData.Detached:wait()
+																																																			objectData.CurrentTrack.Value = ""
+																																																			status:Remove()
+																																																			animationHandler:StopAnimation(player.Character, "Play" .. type)
+																																																		end
+																																																	else
+																																																		do
+																																																			do return "Close" end
+																																																		end
+																																																	end
+																																																end
+
+																																															end
+																																														end
+																																														)
+																																													end
+																																												end
+																																												do
+																																													do
+																																														do return data end
+																																														if type == "Guitar" then
+																																															local data = {}
+																																															local objectData = object:WaitForChild("ObjectData")
+																																															local itemData = items:GetItem(object.Name)
+																																															if itemData then
+																																																for _,sound in pairs(objectData:WaitForChild("Tracks"):GetChildren()) do
+																																																	table.insert(data, function()
+
+																																																		return "Play \'" .. tostring(sound) .. "\'", 1, function(isServer)
+
+																																																			if isServer then
+																																																				local attachData = attachHandler:AttachArea(object, player.Character, 20, 1)
+																																																				if attachData then
+																																																					equipmentHandler:UnequipItem(player)
+																																																					animationHandler:PlayAnimation(player.Character, "Play" .. type)
+																																																					objectData.CurrentTrack.Value = tostring(sound)
+																																																					local guitar = object:WaitForChild("Guitar")
+																																																					local startOffset = object.PrimaryPart.CFrame:inverse() * guitar.CFrame
+																																																					local parent = player.Character:WaitForChild("Left Arm")
+																																																					guitar.Anchored = false
+																																																					guitar.CanCollide = false
+																																																					local itemWeld = Instance.new("Motor6D")
+																																																					itemWeld.Part0 = parent
+																																																					itemWeld.Part1 = guitar
+																																																					if (object.Name ~= "Rockstar Guitar" or not CFrame.Angles(math.pi, 0, 0)) and (object.Name ~= "Acoustic Guitar" or not CFrame.Angles(math.pi / 2, 0, math.pi)) then
+																																																						itemWeld.C1 = CFrame.new()
+																																																						itemWeld.Name = "GuitarWeld"
+																																																						itemWeld.Parent = parent
+																																																						do
+																																																							local status = localModules.StatHandler:AddStatus(player, {Name = "Jamming", Color = "Glad", Icon = itemData.Icon, Description = "Playing the guitar like a pro!"}, {Fun = 1, Hygiene = -0.2, Energy = -0.6}, {Music = 0.8})
+																																																							attachData.Detached:wait()
+																																																							itemWeld:Destroy()
+																																																							guitar.Anchored = true
+																																																							guitar.CanCollide = true
+																																																							guitar.CFrame = object.PrimaryPart.CFrame * startOffset
+																																																							objectData.CurrentTrack.Value = ""
+																																																							status:Remove()
+																																																							animationHandler:StopAnimation(player.Character, "Play" .. type)
+																																																							do return "Close" end
+																																																						end
+																																																					end
+																																																				end
+																																																			end
+																																																		end
+
+																																																	end
+																																																	)
+																																																end
+																																															end
+																																															do
+																																																do
+																																																	do return data end
+																																																	if type == "Bookcase" or type == "Books" then
+																																																		return {function()
+
+																																																			return "Read Book", 1, function(isServer)
+
+																																																				if isServer then
+																																																					local itemData = items:GetItem(object.Name)
+																																																					if itemData then
+																																																						local attachData = attachHandler:AttachArea(object, player.Character, 10, 2, true)
+																																																						if attachData then
+																																																							equipmentHandler:UnequipItem(player)
+																																																							animationHandler:PlayAnimation(player.Character, "ReadBook")
+																																																							local status = localModules.StatHandler:AddStatus(player, {Name = "Bookworm", Color = "Glad", Icon = itemData.Icon, Description = "With some good literature, you can sure drift away to the land of wonders."}, {Fun = 1, Energy = -0.6}, {Intelligence = 0.4})
+																																																							attachData.Detached:wait()
+																																																							status:Remove()
+																																																							animationHandler:StopAnimation(player.Character, "ReadBook")
+																																																						end
+																																																					end
+																																																				else
+																																																					do
+																																																						do return "Close" end
+																																																					end
+																																																				end
+																																																			end
+
+																																																		end
+																																																		}
+																																																	else
+																																																		if type == "Toy" then
+																																																			return {function()
+
+																																																				return "Play With", 1, function(isServer)
+
+																																																					if isServer then
+																																																						local itemData = items:GetItem(object.Name)
+																																																						if itemData then
+																																																							local attachData = attachHandler:AttachArea(object, player.Character, 10, 1)
+																																																							if attachData then
+																																																								equipmentHandler:UnequipItem(player)
+																																																								animationHandler:PlayAnimation(player.Character, "UseToy")
+																																																								local toy = object:WaitForChild("Toy")
+																																																								local parent = player.Character:WaitForChild("Right Arm")
+																																																								local newToy = toy:clone()
+																																																								newToy.Parent = player.Character
+																																																								newToy.Anchored = false
+																																																								newToy.CanCollide = false
+																																																								local meshScale = toy:WaitForChild("Mesh").Scale
+																																																								toy.Mesh.Scale = Vector3.new()
+																																																								local itemWeld = Instance.new("Motor6D")
+																																																								itemWeld.C0 = object.PrimaryPart.CFrame:inverse() * toy.CFrame
+																																																								itemWeld.Part0 = parent
+																																																								itemWeld.Part1 = newToy
+																																																								itemWeld.Name = "ToyWeld"
+																																																								itemWeld.Parent = parent
+																																																								local status = localModules.StatHandler:AddStatus(player, {Name = "Reliving Childhood Memories", Color = "Glad", Icon = itemData.Icon, Descripting = "Toys are always fun to play with."}, {Fun = 1.5, Energy = -0.6})
+																																																								attachData.Detached:wait()
+																																																								itemWeld:Destroy()
+																																																								newToy:Destroy()
+																																																								toy.Mesh.Scale = meshScale
+																																																								status:Remove()
+																																																								animationHandler:StopAnimation(player.Character, "UseToy")
+																																																							end
+																																																						end
+																																																					else
+																																																						do
+																																																							do return "Close" end
+																																																						end
+																																																					end
+																																																				end
+
+																																																			end
+																																																			}
+																																																		else
+																																																			if type == "Clock" then
+																																																				return {function()
+
+																																																					return "Watch", 1, function(isServer)
+
+																																																						if isServer then
+																																																							local itemData = items:GetItem(object.Name)
+																																																							if itemData then
+																																																								local attachData = attachHandler:AttachArea(object, player.Character, 30, 999, true, true)
+																																																								if attachData then
+																																																									local status = localModules.StatHandler:AddStatus(player, {Name = "Tick... Tock...", Color = "Bored", Icon = itemData.Icon, Description = "Was this really the funniest thing you could think of...?"}, {Fun = -1})
+																																																									do
+																																																										animationHandler:SetFocus(player.Character, object:findFirstChild("Origin"))
+																																																										local detached = nil
+																																																										local stop = function()
+
+																																																											animationHandler:SetFocus(player.Character, nil)
+																																																											status:Remove()
+																																																											detached:disconnect()
+																																																										end
+
+																																																										detached = attachData.Detached:connect(stop)
+																																																									end
+																																																								end
+																																																							end
+																																																						else
+																																																							do
+																																																								do return "Close" end
+																																																							end
+																																																						end
+																																																					end
+
+																																																				end
+																																																				}
+																																																			else
+																																																				if type == "Painting" then
+																																																					local decal = object:findFirstChild("Canvas", true):WaitForChild("Decal")
+																																																					return {function()
+
+																																																						return "Change Picture", 2, function(isServer, clientData)
+
+																																																							if isServer then
+																																																								local fullID = clientData.ID
+																																																								if tonumber(fullID) then
+																																																									local getAssetData = function(ID)
+
+																																																										local worked, assetData = pcall(function()
+
+																																																											return marketplaceService:GetProductInfo(tonumber(ID))
+																																																										end
+																																																										)
+																																																										return worked and assetData or nil
+																																																									end
+
+																																																									local originalAssetData = getAssetData(fullID)
+																																																									local curChange, foundID = 1, nil
+																																																									repeat
+																																																										if originalAssetData and tonumber(originalAssetData.AssetTypeId) == 13 then
+																																																											local data = getAssetData(fullID - curChange)
+																																																											if data and tonumber(data.AssetTypeId) == 1 and data.Name == originalAssetData.Name then
+																																																												foundID = fullID - curChange
+																																																												break
+																																																											end
+																																																											curChange = curChange + 1
+																																																										end
+																																																									until foundID or curChange > 5
+																																																									do
+																																																										do
+																																																											do
+																																																												fullID = "rbxassetid://" .. (foundID or fullID)
+																																																												decal.Texture = fullID
+																																																												localModules.SaveHandler:SavePlot(player)
+																																																												if (not tonumber(decal.Texture:sub(14)) or not decal.Texture:sub(14)) and (not tonumber(decal.Texture:sub(33)) or not decal.Texture:sub(33)) then
+																																																													local newID = localModules.GUIHandler:InputBox("Insert Decal ID", decal.Texture)
+																																																													do return "Close", {ID = newID} end
+																																																												end
+																																																											end
+																																																										end
+																																																									end
+																																																								end
+																																																							end
+																																																						end
+
+																																																					end
+																																																					, function()
+
+																																																						if object.Name == "Painting Stand" then
+																																																							return "Paint", 1, function(isServer)
+
+																																																								if isServer then
+																																																									local itemData = items:GetItem(object.Name)
+																																																									if itemData then
+																																																										local attachData = attachHandler:Attach(object, player.Character)
+																																																										if attachData then
+																																																											equipmentHandler:UnequipItem(player)
+																																																											animationHandler:PlayAnimation(player.Character, "Paint")
+																																																											local status = localModules.StatHandler:AddStatus(player, {Name = "Feel Your Creativity Flow", Color = "Glad", Icon = itemData.Icon, Description = "Like a true artist, you let your creativity flow onto the canvas."}, {Fun = 0.6, Energy = -0.6}, {Painting = 0.5})
+																																																											attachData.Detached:wait()
+																																																											status:Remove()
+																																																											animationHandler:StopAnimation(player.Character, "Paint")
+																																																										end
+																																																									end
+																																																								else
+																																																									do
+																																																										do return "Close" end
+																																																									end
+																																																								end
+																																																							end
+
+																																																						end
+																																																					end
+																																																					}
+																																																				else
+																																																					do
+																																																						if object.Name == "Epicsauce" then
+																																																							local itemData = items:GetItem(object.Name)
+																																																							if itemData then
+																																																								return {function()
+
+																																																									return "Drink", 1, function(isServer)
+
+																																																										if isServer then
+																																																											local attachData = attachHandler:AttachArea(object, player.Character, 10, 1)
+																																																											if attachData then
+																																																												equipmentHandler:UnequipItem(player)
+																																																												local bottle = object:WaitForChild("Bottle")
+																																																												local parent = player.Character:WaitForChild("Right Arm")
+																																																												local newBottle = bottle:clone()
+																																																												newBottle.Parent = player.Character
+																																																												newBottle.Anchored = false
+																																																												newBottle.CanCollide = false
+																																																												bottle.Mesh.Scale = Vector3.new()
+																																																												local itemWeld = Instance.new("Motor6D")
+																																																												itemWeld.Part0 = parent
+																																																												itemWeld.Part1 = newBottle
+																																																												itemWeld.Name = "BottleWeld"
+																																																												itemWeld.Parent = parent
+																																																												local animData = animationHandler:PlayAnimation(player.Character, "DrinkEpicsauce")
+																																																												if animData then
+																																																													wait(animData.Animation.Length)
+																																																													spawn(function()
+
+																																																														local status = localModules.StatHandler:AddStatus(player, {Name = "Burning Hot!", Color = "Starving", Icon = itemData.Icon, Description = "The extreme taste of the Epicsauce makes your mouth burning hot!", Duration = 20}, {Hunger = -1, Hygiene = -2, Energy = 2})
+																																																														if status then
+																																																															local fire = Instance.new("Fire", player.Character:WaitForChild("Head"))
+																																																															fire.Heat = 5
+																																																															fire.Size = 3
+																																																															status.Removed:wait()
+																																																															fire.Enabled = false
+																																																															wait(5)
+																																																															fire:Destroy()
+																																																														end
+																																																													end
+																																																													)
+																																																												end
+																																																												itemWeld:Destroy()
+																																																												newBottle:Destroy()
+																																																												bottle.Mesh.Scale = Vector3.new(1, 1, 1)
+																																																												attachData:Detach()
+																																																											end
+																																																										else
+																																																											do
+																																																												do return "Close" end
+																																																											end
+																																																										end
+																																																									end
+
+																																																								end
+																																																								}
+																																																							end
+																																																						else
+																																																							do
+																																																								do
+																																																									if not object:findFirstChild("SpawnedVehicle") or not object.SpawnedVehicle.Value then
+																																																										local spawnedVehicle = type ~= "Motorcycle" and type ~= "Car" or nil
+																																																									end
+																																																									do return {function()
+
+																																																											if not spawnedVehicle then
+																																																												return "Use", 2, function(isServer)
+
+																																																													if isServer then
+																																																														vehicleHandler:UseVehicle(object, player)
+																																																													else
+																																																														return "Close"
+																																																													end
+																																																												end
+
+																																																											end
+																																																										end
+																																																										, function()
+
+																																																											if spawnedVehicle then
+																																																												return "Respawn", 2, function(isServer)
+
+																																																													if isServer then
+																																																														vehicleHandler:RespawnVehicle(spawnedVehicle:WaitForChild("StandModel").Value)
+																																																													else
+																																																														return "Close"
+																																																													end
+																																																												end
+
+																																																											end
+																																																										end
+																																																										} end
+																																																									if type == "SpawnedVehicle" then
+																																																										return {function()
+
+																																																											return "Use", tostring(object.Parent) == "SpawnedVehicles" and object.Parent.Parent == workspace and 1 or 2, function(isServer)
+
+																																																												if isServer then
+																																																													vehicleHandler:AttachVehicle(object, player)
+																																																												else
+																																																													attachHandler:RemoveAttachments(player.Character)
+																																																													return "Close"
+																																																												end
+																																																											end
+
+																																																										end
+																																																										}
+																																																									else
+																																																										if type == "ATM" then
+																																																											return {function()
+
+																																																												return "Use", 0, function(isServer)
+
+																																																													if not isServer then
+																																																														spawn(function()
+
+																																																															localModules.CameraHandler:TweenFromChar(object:WaitForChild("Display").CFrame * CFrame.new(0, 0, 1.5), 0.4)
+																																																														end
+																																																														)
+																																																														spawn(function()
+
+																																																															localModules.ProductPurchaser:ShowStore()
+																																																															localModules.CameraHandler:TweenToChar(0.4)
+																																																														end
+																																																														)
+																																																														return "Close"
+																																																													end
+																																																												end
+
+																																																											end
+																																																											}
+																																																										else
+																																																											if type == "DJBooth" then
+																																																												return {function()
+
+																																																													return "Use", 1, function(isServer)
+
+																																																														if isServer then
+																																																															local itemData = items:GetItem(object.Name)
+																																																															if itemData then
+																																																																local attachData = attachHandler:Attach(object, player.Character)
+																																																																if attachData then
+																																																																	equipmentHandler:UnequipItem(player)
+																																																																	animationHandler:PlayAnimation(player.Character, "UseDJBooth")
+																																																																	local status = localModules.StatHandler:AddStatus(player, {Name = "Disk Jockey", Color = "Glad", Icon = itemData.Icon, Description = "Those beats are sick man!"}, {Fun = 3}, {Music = 0.8})
+																																																																	dataManager:WaitEvent("ClosePlaylist", player)
+																																																																	attachData:Detach()
+																																																																	status:Remove()
+																																																																	animationHandler:StopAnimation(player.Character, "UseDJBooth")
+																																																																end
+																																																															end
+																																																														else
+																																																															do
+																																																																if attachHandler:GetAttachPart(object, player.Character:WaitForChild("HumanoidRootPart").Position) then
+																																																																	spawn(function()
+
+																																																																		spawn(function()
+
+																																																																			localModules.PlaylistHandler:ShowPlaylistFrame(object)
+																																																																		end
+																																																																		)
+																																																																		local selected = localModules.PlaylistHandler.PlaylistFrameClosed:wait()
+																																																																		dataManager:FireServer({Type = "ClosePlaylist"})
+																																																																	end
+																																																																	)
+																																																																end
+																																																																do return "Close" end
+																																																															end
+																																																														end
+																																																													end
+
+																																																												end
+																																																												}
+																																																											else
+																																																												if type == "ArcadeCabinet" then
+																																																													return {function()
+
+																																																														return "Use", 1, function(isServer)
+
+																																																															if isServer then
+																																																																local itemData = items:GetItem(object.Name)
+																																																																if itemData then
+																																																																	local attachData = attachHandler:Attach(object, player.Character)
+																																																																	if attachData then
+																																																																		equipmentHandler:UnequipItem(player)
+																																																																		animationHandler:PlayAnimation(player.Character, "UseArcadeCabinet")
+																																																																		animationHandler:PlayObjectAnimation(attachData.Model, "UseArcadeCabinet")
+																																																																		local status = localModules.StatHandler:AddStatus(player, {Name = "Arcade Nostalgia", Color = "Glad", Icon = itemData.Icon, Description = "What could be better than a classic game of ROTRIS?"}, {Fun = 1.5 + (itemData.Stats and itemData.Stats.Fun or 0) * 0.2, Hygiene = -0.2, Energy = -0.3}, {Gaming = 0.8})
+																																																																		attachData.Detached:wait()
+																																																																		status:Remove()
+																																																																		animationHandler:StopAnimation(player.Character, "UseArcadeCabinet")
+																																																																		animationHandler:StopObjectAnimation(attachData.Model)
+																																																																	end
+																																																																end
+																																																															else
+																																																																do
+																																																																	do return "Close" end
+																																																																end
+																																																															end
+																																																														end
+
+																																																													end
+																																																													}
+																																																												else
+																																																													if type == "Hang Glider" then
+																																																														local glider = object:findFirstChild("Vehicle")
+																																																														return {function()
+
+																																																															if glider then
+																																																																return "Use", 1, function(isServer)
+
+																																																																	if isServer then
+																																																																		local spawnedVehicle = vehicleHandler:CreateVehicle("Hang Glider")
+																																																																		do
+																																																																			local value = Instance.new("StringValue", spawnedVehicle)
+																																																																			value.Value = "Hang Glider"
+																																																																			value.Name = "Type"
+																																																																			spawnedVehicle.PrimaryPart.BrickColor = glider.PrimaryPart.BrickColor
+																																																																			spawnedVehicle.Parent = workspace:WaitForChild("SpawnedVehicles")
+																																																																			local base = spawnedVehicle.PrimaryPart
+																																																																			base.CFrame = glider.PrimaryPart.CFrame * CFrame.new(0, 5, -5)
+																																																																			spawnedVehicle.PrimaryPart:SetNetworkOwner(player)
+																																																																			base:WaitForChild("BodyGyro").CFrame = base.CFrame
+																																																																			spawn(function()
+
+																																																																				vehicleHandler:AttachVehicle(spawnedVehicle, player)
+																																																																			end
+																																																																			)
+																																																																			glider.Parent = game:GetService("ReplicatedStorage"):WaitForChild("Hidden")
+																																																																			wait(5)
+																																																																			glider.PrimaryPart.BrickColor = BrickColor.Random()
+																																																																			glider.Parent = object
+																																																																		end
+																																																																	else
+																																																																		do
+																																																																			spawn(function()
+
+																																																																				local glider = player.Character:WaitForChild("Hang Glider")
+																																																																				glider.PrimaryPart.Anchored = true
+																																																																				glider.PrimaryPart.Velocity = Vector3.new()
+																																																																				wait(0)
+																																																																				glider.PrimaryPart.Anchored = false
+																																																																			end
+																																																																			)
+																																																																			do return "Close" end
+																																																																		end
+																																																																	end
+																																																																end
+
+																																																															end
+																																																														end
+																																																														}
+																																																													else
+																																																														do
+																																																															if tostring(object.Parent) == "FoodOrder" then
+																																																																local foodData = foodData.BuyableFood[tostring(object.Parent.Parent)]
+																																																																local plrStats = workspace:WaitForChild("Stats"):WaitForChild(tostring(player))
+																																																																if (plrStats:WaitForChild("Job").Value == foodData.IgnoreJob and not plrStats.Job:WaitForChild("IsWorking").Value) or plrStats:WaitForChild("Job").Value ~= foodData.IgnoreJob then
+																																																																	return {function()
+
+																																																																		local curFood = {}
+																																																																		for name,price in pairs(foodData.Food) do
+																																																																			do
+																																																																				table.insert(curFood, function()
+
+																																																																					return tostring(name) .. " (" .. tostring(price) .. " $)", 0, function(isServer)
+
+																																																																						if isServer then
+																																																																							buyItem(player, name, price)
+																																																																						else
+																																																																							return "Close"
+																																																																						end
+																																																																					end
+
+																																																																				end
+																																																																				)
+																																																																			end
+																																																																		end
+																																																																		do
+																																																																			return foodData.Name or "Order Food", 0, curFood
+																																																																		end
+																																																																	end
+																																																																	}
+																																																																end
+																																																															else
+																																																																do
+																																																																	if tostring(object) == "Soccer Ball" then
+																																																																		return {function()
+
+																																																																			return "Kick", 1, function(isServer)
+
+																																																																				if isServer then
+																																																																					local ball, torso = object:WaitForChild("Ball"), player.Character:WaitForChild("HumanoidRootPart")
+																																																																					ball.Anchored = false
+																																																																					local dir = CFrame.new(torso.Position, ball.Position).lookVector
+																																																																					ball.Velocity = Vector3.new(dir.X, 0, dir.Z) * 30
+																																																																					ball:WaitForChild("Kick"):Play()
+																																																																				else
+																																																																					do
+																																																																						animationHandler:PlayAnimation(player.Character, "Kick")
+																																																																						do return "Close" end
+																																																																					end
+																																																																				end
+																																																																			end
+
+																																																																		end
+																																																																		}
+																																																																	else
+																																																																		if tostring(object) == "GiantShell" then
+																																																																			return {function()
+
+																																																																				if object.Transparency == 0 and object.Parent == workspace then
+																																																																					return "Take", 1, function(isServer)
+
+																																																																						if object.Transparency == 0 and object.Parent == workspace then
+																																																																							if isServer then
+																																																																								object.Transparency = 1
+																																																																								object.CanCollide = false
+																																																																								dataManager:FireClient(player, {Type = "CreateGUI", Name = "Glow", 
+																																																																									Args = {"You found a", "Giant Seashell", 457439489, "FoundItem"}
+																																																																								})
+																																																																								localModules.StatHandler:AddToInventory(player, "Giant Seashell")
+																																																																							else
+																																																																								takeAnimation(player)
+																																																																								return "Close"
+																																																																							end
+																																																																						end
+																																																																					end
+
+																																																																				end
+																																																																			end
+																																																																			}
+																																																																		else
+																																																																			if tostring(object) == "SandCastle" then
+																																																																				local isDestroyed = object:WaitForChild("ObjectData"):WaitForChild("IsDestroyed")
+																																																																				return {function()
+
+																																																																					return isDestroyed.Value and "Rebuild" or "Destroy", 1, function(isServer)
+
+																																																																						if isServer then
+																																																																							isDestroyed.Value = not isDestroyed.Value
+																																																																						else
+																																																																							animationHandler:PlayAnimation(player.Character, isDestroyed.Value and "UseGround" or "Kick")
+																																																																							if isDestroyed.Value then
+																																																																								delay(5, function()
+
+																																																																									animationHandler:StopAnimation(player.Character, "UseGround")
+																																																																								end
+																																																																								)
+																																																																							end
+																																																																							return "Close"
+																																																																						end
+																																																																					end
+
+																																																																				end
+																																																																				}
+																																																																			else
+																																																																				do
+																																																																					if type == "ObjectStand" then
+																																																																						local objectData = items:GetItem(tostring(tostring(object):sub(13)))
+																																																																						if (not objectData.BSPrice and not objectData.BSPrice) or not "Blockbux" then
+																																																																							local price, priceType = objectData.Price, not objectData or "Money"
+																																																																						end
+																																																																						do return {function()
+
+																																																																								return "Buy " .. tostring(objectData.Name) .. " (" .. textModule:SeparateNumber(price) .. " " .. (objectData.BSPrice and "B$" or "$") .. ")", 1, function(isServer)
+
+																																																																									--   ERROR at PC28: Unhandled construct in 'MakeBoolean' P1
+
+																																																																									if isServer and price <= localModules.StatHandler:GetStat(player, priceType) and localModules.StatHandler:AddToInventory(player, objectData.Name, 1) then
+																																																																										localModules.StatHandler:ChangeStat(player, priceType, -price)
+																																																																										dataManager:FireClient(player, {Type = "BoughtObject", Name = objectData.Name})
+																																																																										if priceType == "Blockbux" then
+																																																																											googleAnalytics.ReportEvent("BlockbuxPurchase", objectData.Name, tostring(player.UserId), 1)
+																																																																										end
+																																																																									end
+																																																																									do
+																																																																										if localModules.ClientStats:Get(priceType) < price then
+																																																																											local frame = localModules.ProductPurchaser:ShowCurrencyFrame(priceType)
+																																																																											frame:WaitForChild("NotEnoughLabel").Visible = true
+																																																																											localModules.ProductPurchaser.CurrencyFrameToggled:wait()
+																																																																											return "Update", {NoSend = true}
+																																																																										end
+																																																																										local acceptPurchase = localModules.GUIHandler:ConfirmBox("Are you sure you want to buy one \'" .. tostring(objectData.Name) .. "\' for " .. textModule:SeparateNumber(price) .. " " .. (objectData.BSPrice and "B$" or "$") .. "?", "Purchase Object")
+																																																																										do return "Close", {NoSend = not acceptPurchase} end
+																																																																									end
+																																																																								end
+
+																																																																							end
+																																																																							} end
+																																																																					else
+																																																																						do
+																																																																							if type == "SupermarketShelf" then
+																																																																								local name = tostring(object):match(".-_(.+)")
+																																																																								local data = foodData.BuyableFood.Supermarket
+																																																																								local objectData = data.Food[name]
+																																																																								local plrStats = workspace:WaitForChild("Stats"):WaitForChild(tostring(player))
+																																																																								if (plrStats:WaitForChild("Job").Value == data.IgnoreJob and not plrStats.Job:WaitForChild("IsWorking").Value) or plrStats:WaitForChild("Job").Value ~= data.IgnoreJob then
+																																																																									return {function()
+
+																																																																										return "Buy " .. tostring(name) .. " (" .. textModule:SeparateNumber(objectData) .. " $)", 1, function(isServer)
+
+																																																																											--   ERROR at PC27: Unhandled construct in 'MakeBoolean' P1
+
+																																																																											if isServer and objectData <= localModules.StatHandler:GetStat(player, "Money") and localModules.StatHandler:AddToInventory(player, name, 1) then
+																																																																												localModules.StatHandler:ChangeStat(player, "Money", -objectData)
+																																																																												local equipped = equipmentHandler:GetEquipped(player)
+																																																																												if tostring(equipped) == "Shopping Cart" then
+																																																																													local itemModels = repStorage:WaitForChild("ItemModels"):WaitForChild("Food")
+																																																																													local model = itemModels:findFirstChild(name)
+																																																																													if model then
+																																																																														local part = model:findFirstChild("Food")
+																																																																														if part then
+																																																																															local newPart = part:clone()
+																																																																															newPart.Anchored = false
+																																																																															newPart.CanCollide = false
+																																																																															newPart.CustomPhysicalProperties = PhysicalProperties.new(0, 0.2, 0.5)
+																																																																															local weld = Instance.new("Motor6D", newPart)
+																																																																															weld.Part0 = newPart
+																																																																															weld.Part1 = equipped:WaitForChild("Base")
+																																																																															weld.C0 = CFrame.new((math.random() - 0.5) * (1.5 - newPart.Size.X * 0.5), 0.2 - newPart.Size.Y * 0.5, (math.random() - 0.5) * (3 - newPart.Size.Z * 0.5) + 0.3)
+																																																																															newPart.Parent = equipped
+																																																																														end
+																																																																													end
+																																																																												end
+																																																																											end
+																																																																											do
+																																																																												do
+																																																																													if localModules.ClientStats:Get("Money") < objectData then
+																																																																														local frame = localModules.ProductPurchaser:ShowCurrencyFrame("Money")
+																																																																														frame:WaitForChild("NotEnoughLabel").Visible = true
+																																																																														localModules.ProductPurchaser.CurrencyFrameToggled:wait()
+																																																																														return "Update", {NoSend = true}
+																																																																													end
+																																																																													do return "Close" end
+																																																																												end
+																																																																											end
+																																																																										end
+
+																																																																									end
+																																																																									}
+																																																																								end
+																																																																							else
+																																																																								do
+																																																																									if type == "ShoppingCart" then
+																																																																										return {function()
+
+																																																																											return "Take Shopping Cart", 1, function(isServer)
+
+																																																																												if isServer then
+																																																																													equipmentHandler:EquipItem(player, "Shopping Cart")
+																																																																												else
+																																																																													return "Close"
+																																																																												end
+																																																																											end
+
+																																																																										end
+																																																																										}
+																																																																									else
+																																																																										if type == "MailBox" then
+																																																																											local plot = plotHandler:GetPlotFromModel(object)
+																																																																											local plotOwner = plotHandler:GetPlayer(plot)
+																																																																											if plotOwner == player then
+																																																																												return {function()
+
+																																																																													return "Manage Permissions", 1, function(isServer)
+
+																																																																														spawn(function()
+
+																																																																															localModules.HouseHandler:ShowPermissionFrame()
+																																																																														end
+																																																																														)
+																																																																														return "Close", {NoSend = true}
+																																																																													end
+
+																																																																												end
+																																																																												, function()
+
+																																																																													return "Throw Party", 1, function(isServer)
+
+																																																																														spawn(function()
+
+																																																																															localModules.HouseHandler:ThrowParty()
+																																																																														end
+																																																																														)
+																																																																														return "Close", {NoSend = true}
+																																																																													end
+
+																																																																												end
+																																																																												, function()
+
+																																																																													return "Enter Build Mode", 1, function(isServer)
+
+																																																																														spawn(function()
+
+																																																																															localModules.Hotbar:ToHouse()
+																																																																															wait(0)
+																																																																															localModules.Hotbar:EnterBuild()
+																																																																														end
+																																																																														)
+																																																																														return "Close", {NoSend = true}
+																																																																													end
+
+																																																																												end
+																																																																												}
+																																																																											end
+																																																																										else
+																																																																											do
+																																																																												if type == "Player" then
+																																																																													if object == player then
+																																																																														return {function()
+
+																																																																															local emotes = {}
+																																																																															for name,data in pairs(animationHandler:GetAnimationData()) do
+																																																																																do
+																																																																																if name:sub(1, 6) == "Emote_" then
+																																																																																do
+																																																																																table.insert(emotes, function()
+
+																																																																																return name:sub(7), 1, function(isServer)
+
+																																																																																if not isServer then
+																																																																																animationHandler:PlayAnimation(player.Character, name)
+																																																																																return "Close"
+																																																																																end
+																																																																																end
+
+																																																																																end
+																																																																																)
+																																																																																--   ERROR at PC21: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+																																																																																--   ERROR at PC21: LeaveBlock: unexpected jumping out IF_STMT
+
+																																																																																end
+																																																																																end
+																																																																																end
+																																																																															end
+																																																																															return "Emotes...", 1, emotes
+																																																																														end
+																																																																														}
+																																																																													else
+																																																																														return {function()
+
+																																																																															local plrPlot = plotHandler:GetPlot(player)
+																																																																															if plotHandler:IsOnPlot(plrPlot, object) then
+																																																																																return "Kick Out", 0, function(isServer)
+
+																																																																																if isServer then
+																																																																																local root = object.Character:WaitForChild("HumanoidRootPart")
+																																																																																local targetPos = plotHandler:GetPlotSpawn(plrPlot)
+																																																																																attachHandler:MovePlayer(object, targetPos * CFrame.new(0, 0, 6))
+																																																																																else
+																																																																																do
+																																																																																do return "Close" end
+																																																																																end
+																																																																																end
+																																																																																end
+
+																																																																															end
+																																																																														end
+																																																																														, function()
+
+																																																																															local permissionData = {}
+																																																																															for index,role in pairs(permissionHandler.PermissionRoles) do
+																																																																																do
+																																																																																if role ~= "Owner" then
+																																																																																do
+																																																																																table.insert(permissionData, function()
+
+																																																																																return role, 0, function(isServer)
+
+																																																																																if isServer then
+																																																																																dataManager:FireLocal(player, {Type = "SetPermission", Index = index - 1, Player = object})
+																																																																																else
+																																																																																return "Close"
+																																																																																end
+																																																																																end
+
+																																																																																end
+																																																																																)
+																																																																																--   ERROR at PC18: LeaveBlock: unexpected jumping out IF_THEN_STMT
+
+																																																																																--   ERROR at PC18: LeaveBlock: unexpected jumping out IF_STMT
+
+																																																																																end
+																																																																																end
+																																																																																end
+																																																																															end
+																																																																															return "Change Permission", 0, permissionData
+																																																																														end
+																																																																														, function()
+
+																																																																															return "Donate Money", 0, function(isServer, clientData)
+
+																																																																																if isServer then
+																																																																																local amount = tonumber(clientData.Amount)
+																																																																																if amount and amount > 0 and amount <= localModules.StatHandler:GetStat(player, "Money") and localModules.StatHandler:ChangeStat(player, "Money", -amount) then
+																																																																																localModules.StatHandler:ChangeStat(object, "Money", amount)
+																																																																																if localModules.SaveHandler:SaveData(player, true) then
+																																																																																dataManager:FireClient(object, {Type = "DonationReceived", Amount = amount, Sender = player})
+																																																																																localModules.SaveHandler:SaveData(object)
+																																																																																else
+																																																																																localModules.StatHandler:ChangeStat(object, "Money", -amount)
+																																																																																localModules.StatHandler:ChangeStat(player, "Money", amount)
+																																																																																end
+																																																																																end
+																																																																																else
+																																																																																do
+																																																																																local title = "Donate to \'" .. tostring(object) .. "\'"
+																																																																																local money = tonumber(localModules.GUIHandler:InputBox(title, "Amount"))
+																																																																																if not money or money <= 0 then
+																																																																																localModules.GUIHandler:AlertBox("Invalid amount!", title)
+																																																																																else
+																																																																																if localModules.ClientStats:Get("Money") < money then
+																																																																																localModules.GUIHandler:AlertBox("You don\'t have enough money!", title)
+																																																																																else
+																																																																																if localModules.GUIHandler:ConfirmBox("Are you sure you want to donate " .. textModule:SeparateNumber(money) .. " $ to \'" .. tostring(object) .. "\'?\nThis cannot be undone!", title) then
+																																																																																return "Close", {Amount = money}
+																																																																																end
+																																																																																end
+																																																																																end
+																																																																																do return "Update", {NoSend = true} end
+																																																																																end
+																																																																																end
+																																																																															end
+
+																																																																														end
+																																																																														}
+																																																																													end
+																																																																												else
+																																																																													do
+																																																																														--   ERROR at PC1089: LeaveBlock: unexpected jumping out IF_ELSE_STMT
+
+																																																																														--   ERROR at PC1089: LeaveBlock: unexpected jumping out IF_STMT
+
+																																																																													end
+																																																																												end
+																																																																											end
+																																																																										end
+																																																																									end
+																																																																									if type then
+																																																																									end
+																																																																								end
+																																																																							end
+																																																																						end
+																																																																					end
+																																																																				end
+																																																																			end
+																																																																		end
+																																																																	end
+																																																																end
+																																																															end
+																																																														end
+																																																													end
+																																																												end
+																																																											end
+																																																										end
+																																																									end
+																																																								end
+																																																							end
+																																																						end
+																																																					end
+																																																				end
+																																																			end
+																																																		end
+																																																	end
+																																																end
+																																															end
+																																														end
+																																													end
+																																												end
+																																											end
+																																										end
+																																									end
+																																								end
+																																							end
+																																						end
+																																					end
+																																				end
+																																			end
+																																		end
+																																	end
+																																end
+																															end
+																														end
+																													end
+																												end
+																											end
+																										end
+																									end
+																								end
+																							end
+																						end
+																					end
+																				end
+																			end
+																		end
+																	end
+																end
+															end
+														end
+													end
+												end
+											end
+										end
+									end
+								end
+							end
+						end
+					end
+				end
+			end
+
+			return module
+		end
+	end
+end
